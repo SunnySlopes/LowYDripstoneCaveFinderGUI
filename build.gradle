@@ -1,0 +1,119 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import com.github.jengelman.gradle.plugins.shadow.transformers.Log4j2PluginsCacheFileTransformer
+import com.github.jengelman.gradle.plugins.shadow.transformers.PropertiesFileTransformer
+
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+group 'org.example'
+version '1.0.0'
+repositories {
+    mavenCentral()
+    gradlePluginPortal()
+    maven {
+        url "https://maven.seedfinding.com"
+        }
+
+    maven {
+        url "https://maven.latticg.com"
+        }
+
+    maven {
+
+        url "https://jitpack.io"
+
+        }
+    maven {url "https://repo.jellejurre.dev"}
+
+}
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+}
+test {
+    useJUnitPlatform()
+}
+
+// 配置 Shadow JAR
+shadowJar {
+    archiveBaseName.set('LowYDripstoneCaveFinder')
+    archiveClassifier.set('')
+    mergeServiceFiles()
+}
+
+// 创建 LowYDripstoneCaveFinder 的可执行 JAR
+tasks.register('buildMainJar', ShadowJar) {
+    group = 'build'
+    description = 'Creates a fat JAR for LowYDripstoneCaveFinder'
+    archiveBaseName.set('LowYDripstoneCaveFinder')
+    archiveClassifier.set('')
+    from sourceSets.main.output
+    configurations = [project.configurations.runtimeClasspath]
+    manifest {
+        attributes 'Main-Class': 'sunnyslopes.lowydscavefinder.LowYDripstoneCaveFinderFrame'
+        attributes 'Multi-Release': 'true'
+    }
+    mergeServiceFiles()
+    transform(Log4j2PluginsCacheFileTransformer)
+    transform(PropertiesFileTransformer) {
+        paths = ['META-INF/spring.handlers', 'META-INF/spring.schemas']
+        mergeStrategy = "append"
+    }
+    // 注意：不要排除 META-INF/versions/**，因为 Multi-Release JAR 需要这些文件
+    exclude 'module-info.class'
+}
+
+// 创建所有 JAR 的任务
+tasks.register('buildAllJars') {
+    group = 'build'
+    description = 'Builds all executable JARs'
+    dependsOn buildMainJar
+}
+
+// Prebuilt native libraries only. Build DLL in LowYDSCaveFinder/, then copy to native/windows/.
+def generatedNativeResourcesDir = layout.buildDirectory.dir('generated/native-resources')
+tasks.register('prepareNativeResources') {
+    group = 'build'
+    description = 'Collects prebuilt dll/so/dylib from native/ into jar resources'
+    outputs.dir(generatedNativeResourcesDir)
+    doLast {
+        def outDir = generatedNativeResourcesDir.get().asFile
+        delete(outDir)
+        outDir.mkdirs()
+
+        def windowsDir = file('native/windows')
+        def linuxDir = file('native/linux')
+        def macosDir = file('native/macos')
+
+        if (!windowsDir.exists() || !file('native/windows/libDripstoneCaveFinderLibJ.dll').exists()) {
+            throw new GradleException(
+                'Missing native/windows/libDripstoneCaveFinderLibJ.dll. ' +
+                'Build in LowYDSCaveFinder/ (native submodule) and copy the DLL to native/windows/.')
+        }
+
+        copy {
+            from(windowsDir)
+            include('*.dll')
+            into(new File(outDir, 'native/windows'))
+        }
+        if (linuxDir.exists()) {
+            copy {
+                from(linuxDir)
+                include('*.so')
+                into(new File(outDir, 'native/linux'))
+            }
+        }
+        if (macosDir.exists()) {
+            copy {
+                from(macosDir)
+                include('*.dylib')
+                into(new File(outDir, 'native/macos'))
+            }
+        }
+    }
+}
+
+tasks.named('processResources') {
+    dependsOn tasks.named('prepareNativeResources')
+    from(generatedNativeResourcesDir)
+}

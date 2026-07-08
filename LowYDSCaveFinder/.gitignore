@@ -1,0 +1,14 @@
+find_compactbiomes
+find_quadhuts
+.cproject
+.project
+cubiomes/docs/LayerSummary.aux
+cubiomes/docs/LayerSummary.log
+cubiomes/docs/LayerSummary.synctex.gz
+cubiomes/docs/LayerSummary.toc
+*.o
+*.a
+a.out
+
+/.vs/
+/out/

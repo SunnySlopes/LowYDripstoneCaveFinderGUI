@@ -1,0 +1,494 @@
+#include "cubiomes/generator.h"
+#include "cubiomes/biomes.h"
+#include <vector>
+#include <algorithm>
+#include <queue>
+#include <iostream>
+#include <chrono>
+#include "Thread.h"
+#include "BiomeSampler.h"
+#include <functional>
+#include <ranges>
+#include <unordered_map>
+#include <cmath>
+#include <thread>
+
+enum class FilterMode { WeirdnessOnly, ClimateCoarse, PreciseBiome };
+
+struct RingMask {
+    struct Row { int dz; int out; int in; };
+    std::vector<Row> rows;
+    int R_out = 0;
+};
+
+template<int scale>
+static const RingMask &getRingMask()
+{
+    static const RingMask mask = [] {
+        RingMask m;
+        m.R_out = 128 / scale;
+        const int R_in = 24 / scale;
+        std::vector<int> dxOut(2 * m.R_out + 1);
+        std::vector<int> dxIn(2 * R_in + 1);
+        for (int dz = -m.R_out; dz <= m.R_out; dz++)
+            dxOut[dz + m.R_out] = (int) std::floor(std::sqrt((double) m.R_out * m.R_out - dz * dz));
+        for (int dz = -R_in; dz <= R_in; dz++)
+            dxIn[dz + R_in] = (int) std::floor(std::sqrt((double) R_in * R_in - dz * dz));
+        m.rows.reserve(2 * m.R_out + 1);
+        for (int dz = -m.R_out; dz <= m.R_out; dz++)
+        {
+            RingMask::Row row{};
+            row.dz = dz;
+            row.out = dxOut[dz + m.R_out];
+            row.in = (std::abs(dz) <= R_in) ? dxIn[dz + R_in] : -1;
+            m.rows.push_back(row);
+        }
+        return m;
+    }();
+    return mask;
+}
+
+static inline int coarseCellValue(Generator *g, int worldX, int worldZ, FilterMode mode)
+{
+    const int nx = worldX / 4;
+    const int nz = worldZ / 4;
+    if (mode == FilterMode::WeirdnessOnly)
+        return passCaveWeirdness(&g->bn, nx, nz, COARSE_SAMPLE_FLAGS) ? 1 : 0;
+
+    if (!passCaveWeirdness(&g->bn, nx, nz, COARSE_SAMPLE_FLAGS))
+        return 0;
+    return passCaveClimate(&g->bn, nx, nz, COARSE_SAMPLE_FLAGS) ? 1 : 0;
+}
+
+static void fillPreciseGrid(Generator *g, int startX, int startZ, int W, int H,
+                            std::vector<int> &rawRiver, std::vector<int> &rawCave)
+{
+    for (int z = 0; z < H; z++)
+    {
+        const int worldZ = startZ + z;
+        for (int x = 0; x < W; x++)
+        {
+            const int worldX = startX + x;
+            int riverHits = 0;
+            int caveHits = 0;
+            samplePreciseCell(g, worldX, worldZ, &riverHits, &caveHits);
+            const size_t idx = (size_t) x + (size_t) z * W;
+            rawRiver[idx] = riverHits;
+            rawCave[idx] = caveHits;
+        }
+    }
+}
+
+struct Point {
+    int x = 0;
+    int y = 0;
+    std::strong_ordering operator<=>(const Point &) const = default;
+};
+
+struct Res {
+    Point point;
+    int area = 0;
+    int caveArea = 0;
+    int riverArea = 0;
+
+    std::strong_ordering operator<=>(const Res &other) const noexcept
+    {
+        if (auto c = area <=> other.area; c != 0) return c;
+        return point <=> other.point;
+    }
+
+    Res() = default;
+    Res(Point p, int total, int cave, int river = 0)
+        : point(p), area(total), caveArea(cave), riverArea(river) {}
+};
+
+struct Progress {
+    std::atomic_int current{0};
+    std::atomic_int total{0};
+    std::atomic_int chunkInRunning{0};
+    std::atomic_int phase1{0};
+    std::atomic_bool try_pause{false};
+    std::atomic_bool try_stop{false};
+};
+
+template<int scale>
+std::vector<Res> findBiggestRiver(
+    Generator *g,
+    int startX, int startZ,
+    int sx, int sz,
+    int min,
+    double f,
+    FilterMode mode,
+    float riverWeight = 0.7f) noexcept
+{
+    std::vector<Res> result;
+    const int W = sx / scale;
+    const int H = sz / scale;
+    if (W <= 0 || H <= 0) return result;
+
+    const int stride = W + 1;
+    std::vector<int> rawRiver((size_t) W * H, 0);
+    std::vector<int> rawCave((size_t) W * H, 0);
+    std::vector<int> prefixRiver((size_t) (W + 1) * (H + 1), 0);
+    std::vector<int> prefixCave((size_t) (W + 1) * (H + 1), 0);
+
+#define RAWR(x,z) rawRiver[(size_t)(x) + (size_t)(z) * W]
+#define RAWC(x,z) rawCave[(size_t)(x) + (size_t)(z) * W]
+#define ARRR(x,z) prefixRiver[(size_t)(x) + (size_t)(z) * stride]
+#define ARRC(x,z) prefixCave[(size_t)(x) + (size_t)(z) * stride]
+
+    if constexpr (scale > 1)
+    {
+        for (int z = 0; z < H; z++)
+        {
+            const int worldZ = startZ + z * scale + scale / 2;
+            for (int x = 0; x < W; x++)
+            {
+                const int worldX = startX + x * scale + scale / 2;
+                RAWR(x, z) = coarseCellValue(g, worldX, worldZ, mode);
+            }
+        }
+    } else
+    {
+        fillPreciseGrid(g, startX, startZ, W, H, rawRiver, rawCave);
+    }
+
+    for (int z = 1; z <= H; z++)
+    {
+        for (int x = 1; x <= W; x++)
+        {
+            ARRR(x, z) = RAWR(x - 1, z - 1) + ARRR(x - 1, z) + ARRR(x, z - 1) - ARRR(x - 1, z - 1);
+            ARRC(x, z) = RAWC(x - 1, z - 1) + ARRC(x - 1, z) + ARRC(x, z - 1) - ARRC(x - 1, z - 1);
+        }
+    }
+
+    struct CandidateArea {
+        int area;
+        int caveArea;
+        int riverArea;
+        int startX;
+        int startZ;
+
+        bool operator<(const CandidateArea &other) const noexcept
+        {
+            if (area != other.area) return area < other.area;
+            if (startX != other.startX) return startX > other.startX;
+            return startZ > other.startZ;
+        }
+    };
+
+    std::priority_queue<CandidateArea> pq;
+    const auto &ring = getRingMask<scale>();
+    const int R_out = ring.R_out;
+
+    auto ringSum = [&](const std::vector<int> &pref, int cx, int cz) -> int {
+        int area = 0;
+        for (const auto &m: ring.rows)
+        {
+            const int row = cz + m.dz;
+            const int L = cx - m.out;
+            const int R = cx + m.out;
+            if (m.in == -1)
+            {
+                area += pref[(size_t) (R + 1) + (size_t) (row + 1) * stride]
+                      - pref[(size_t) L + (size_t) (row + 1) * stride]
+                      - pref[(size_t) (R + 1) + (size_t) row * stride]
+                      + pref[(size_t) L + (size_t) row * stride];
+            } else
+            {
+                const int Lin = cx - m.in;
+                const int Rin = cx + m.in;
+                area += pref[(size_t) Lin + (size_t) (row + 1) * stride]
+                      - pref[(size_t) L + (size_t) (row + 1) * stride]
+                      - pref[(size_t) Lin + (size_t) row * stride]
+                      + pref[(size_t) L + (size_t) row * stride];
+                area += pref[(size_t) (R + 1) + (size_t) (row + 1) * stride]
+                      - pref[(size_t) (Rin + 1) + (size_t) (row + 1) * stride]
+                      - pref[(size_t) (R + 1) + (size_t) row * stride]
+                      + pref[(size_t) (Rin + 1) + (size_t) row * stride];
+            }
+        }
+        return area;
+    };
+
+    CandidateArea maxA{0, 0, 0, 0, 0};
+
+    for (int cz = R_out; cz < H - R_out; cz++)
+    {
+        for (int cx = R_out; cx < W - R_out; cx++)
+        {
+            int worldTotal;
+            int worldCave;
+            int worldRiver;
+
+            if constexpr (scale == 1)
+            {
+                const int sumR = ringSum(prefixRiver, cx, cz);
+                const int sumC = ringSum(prefixCave, cx, cz);
+                worldRiver = (sumR + 1) / 3;
+                worldCave = (sumC + 1) / 3;
+                worldTotal = worldCave + (int) (worldRiver * riverWeight);
+            } else
+            {
+                const int sum = ringSum(prefixRiver, cx, cz);
+                worldTotal = sum * scale * scale;
+                worldCave = 0;
+                worldRiver = 0;
+            }
+
+            if (worldTotal >= maxA.area * f && worldTotal >= min)
+            {
+                const int worldX = startX + cx * scale;
+                const int worldZ = startZ + cz * scale;
+                pq.push({worldTotal, worldCave, worldRiver, worldX, worldZ});
+                if (worldTotal > maxA.area)
+                {
+                    maxA.area = worldTotal;
+                    maxA.caveArea = worldCave;
+                    maxA.riverArea = worldRiver;
+                }
+            }
+        }
+    }
+
+    while (!pq.empty())
+    {
+        if (const auto &ra = pq.top(); ra.area >= maxA.area * f)
+        {
+            result.emplace_back(Point{ra.startX, ra.startZ}, ra.area, ra.caveArea, ra.riverArea);
+            if (f == 1.0) break;
+        }
+        pq.pop();
+    }
+
+#undef RAWR
+#undef RAWC
+#undef ARRR
+#undef ARRC
+    return result;
+}
+
+void findBiggestRiverParallelPool(
+    ThreadSafeResults<Res> &globalResults,
+    Generator *g,
+    int startX, int startZ,
+    int sx, int sz,
+    int minArea,
+    Progress *progress = nullptr,
+    int numThreads = static_cast<int>(std::thread::hardware_concurrency())
+)
+{
+    ThreadPool pool(numThreads);
+    const int chunkSize = 4096 * 2;
+    const int overlap = 256;
+    std::atomic<int> completedChunks{0};
+    int totalChunks = 0;
+
+#ifndef RIVER_FINDER_JNI_LIB
+    auto startTime = std::chrono::high_resolution_clock::now();
+#endif
+
+    for (int x = 0; x < sx; x += chunkSize - overlap)
+    {
+        for (int z = 0; z < sz; z += chunkSize - overlap)
+        {
+            int currentSx = std::min(chunkSize, sx - x);
+            int currentSz = std::min(chunkSize, sz - z);
+
+            if (currentSx >= 256 && currentSz >= 256)
+            {
+                totalChunks++;
+
+                pool.enqueue([&, x, z, currentSx, currentSz]() {
+                    if (progress)
+                    {
+                        if (progress->try_stop.load()) return;
+                        while (progress->try_pause.load())
+                        {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                            if (progress->try_stop.load()) return;
+                        }
+                        progress->chunkInRunning.fetch_add(1);
+                    }
+
+                    Generator localG = *g;
+                    const int csx = startX + x;
+                    const int csz = startZ + z;
+
+                    auto blockResultsX16 = findBiggestRiver<16>(
+                        &localG, csx, csz, currentSx, currentSz,
+                        minArea, 0.8, FilterMode::WeirdnessOnly);
+
+                    const int bx = currentSx / 256 + 2;
+                    const int bz = currentSz / 256 + 2;
+                    std::vector<Res> flags((size_t) bx * bz);
+                    for (const auto &it: blockResultsX16)
+                    {
+                        int x2 = (it.point.x - csx) / 256;
+                        int z2 = (it.point.y - csz) / 256;
+                        if (x2 >= 0 && x2 < bx && z2 >= 0 && z2 < bz)
+                        {
+                            auto &itf = flags[(size_t) x2 + (size_t) bx * z2];
+                            if (itf.area < it.area) itf = it;
+                        }
+                    }
+
+                    std::vector<Res> pqX16;
+                    for (auto &kv: flags)
+                        if (kv.area > 0) pqX16.push_back(kv);
+                    std::ranges::sort(pqX16, [](const Res &a, const Res &b) { return a.area > b.area; });
+
+                    std::unordered_map<uint64_t, Res> blockResultsX4;
+                    int max = 0;
+                    for (auto &res: pqX16)
+                    {
+                        auto subResults = findBiggestRiver<4>(
+                            &localG,
+                            res.point.x - 256, res.point.y - 256,
+                            512, 512,
+                            minArea, 1.0, FilterMode::ClimateCoarse);
+
+                        if (subResults.empty()) break;
+                        if (subResults[0].area < max * 0.9) break;
+
+                        auto &r = subResults[0];
+                        uint64_t key = ((uint64_t) (uint32_t) r.point.x << 32) | (uint32_t) r.point.y;
+                        auto it = blockResultsX4.find(key);
+                        if (it == blockResultsX4.end())
+                            blockResultsX4.emplace(key, r);
+                        else if (it->second.area < r.area)
+                            it->second = r;
+
+                        if (subResults[0].area > max) max = subResults[0].area;
+                    }
+
+                    std::vector<Res> filteredResults;
+                    for (const auto &result: blockResultsX4 | std::views::values)
+                    {
+                        int relX = result.point.x - csx;
+                        int relZ = result.point.y - csz;
+                        if (relX > overlap / 2 && relX < currentSx - overlap / 2 &&
+                            relZ > overlap / 2 && relZ < currentSz - overlap / 2 &&
+                            result.area > 0)
+                        {
+                            filteredResults.push_back(result);
+                        }
+                    }
+                    std::ranges::sort(filteredResults, [](const Res &a, const Res &b) { return a.area > b.area; });
+                    if (!filteredResults.empty())
+                        globalResults.addResults(filteredResults);
+
+                    int completed = completedChunks.fetch_add(1) + 1;
+                    if (progress)
+                    {
+                        progress->current.store(completed);
+                        progress->chunkInRunning.fetch_sub(1);
+                    }
+
+#ifndef RIVER_FINDER_JNI_LIB
+                    if (completed % 500 == 0)
+                    {
+                        auto currentTime = std::chrono::high_resolution_clock::now();
+                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            currentTime - startTime).count();
+                        double speed = static_cast<double>(completed) / elapsed * 1000;
+                        std::cout << "Progress: " << completed << "/" << totalChunks
+                                << " (" << int(completed * 100.0 / totalChunks)
+                                << "%) - " << speed << " chunks/sec\n";
+                    }
+#endif
+                });
+            }
+        }
+    }
+
+    if (progress)
+        progress->total.store(totalChunks);
+
+#ifndef RIVER_FINDER_JNI_LIB
+    std::cout << "Submitted " << totalChunks << " chunks to thread pool\n";
+#endif
+}
+
+#ifndef RIVER_FINDER_JNI_LIB
+int main(int argc, char **argv)
+{
+    (void) argc;
+    int64_t seed = -8180004378910677489;
+    int px = 0, pz = 0, d = 4096;
+    std::cout << "seed: ";
+    std::cin >> seed;
+    std::cout << "center_x: ";
+    std::cin >> px;
+    std::cout << "center_z: ";
+    std::cin >> pz;
+    std::cout << "r: ";
+    std::cin >> d;
+
+    int startX = px - d;
+    int startZ = pz - d;
+    int xRange = 2 * d;
+    int zRange = 2 * d;
+    int minArea = 40000;
+    const char *outFile = "out1.txt";
+    int outLimit = 1000;
+
+    Generator g;
+    setupGenerator(&g, MC_1_21_3, FORCE_OCEAN_VARIANTS);
+    applySeed(&g, DIM_OVERWORLD, seed);
+
+    ThreadSafeResults<Res> globalResults;
+    findBiggestRiverParallelPool(globalResults, &g, startX, startZ, xRange, zRange, minArea, nullptr);
+
+    auto res = globalResults.getAllResults();
+    std::ranges::sort(res, [](const Res &a, const Res &b) { return a.area > b.area; });
+
+    int max = 0;
+    std::vector<Res> finallyResults;
+    for (const auto &it: res)
+    {
+        auto temp = findBiggestRiver<1>(
+            &g, it.point.x - 160, it.point.y - 160, 320, 320,
+            1, 1.0, FilterMode::PreciseBiome);
+        if (!temp.empty() && temp[0].area > max * 0.90)
+        {
+            finallyResults.push_back(temp[0]);
+            if (temp[0].area > max) max = temp[0].area;
+        } else
+        {
+            break;
+        }
+    }
+
+    FILE *fp = fopen(outFile, "w");
+    if (fp)
+    {
+        fprintf(fp, "Cave Analysis Results (Seed: %lld)\n", (long long) seed);
+        fprintf(fp, "Search Area: X=%d to %d, Z=%d to %d\n",
+                startX, startX + xRange, startZ, startZ + zRange);
+        fprintf(fp, "========================================\n");
+    }
+
+    int count = 0;
+    for (const auto &it: finallyResults)
+    {
+        std::cout << "x:" << it.point.x << " y:" << it.point.y
+                << "  Area:" << it.area << " cave:" << it.caveArea
+                << " river:" << it.riverArea << std::endl;
+        if (fp)
+        {
+            fprintf(fp, "x:%d y:%d  Area:%d cave:%d river:%d\n",
+                    it.point.x, it.point.y, it.area, it.caveArea, it.riverArea);
+        }
+        count++;
+        if (count > outLimit) break;
+    }
+    if (fp)
+    {
+        fprintf(fp, "\nTotal results: %d\n", count);
+        fclose(fp);
+        std::cout << "\nResults saved to: " << outFile << std::endl;
+    }
+    return 0;
+}
+#endif

@@ -1,0 +1,3 @@
+[submodule "LowYDSCaveFinder/cubiomes"]
+	path = LowYDSCaveFinder/cubiomes
+	url = https://github.com/xpple/cubiomes.git
