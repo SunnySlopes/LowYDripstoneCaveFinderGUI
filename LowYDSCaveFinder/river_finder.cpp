@@ -12,6 +12,7 @@
 #include <ranges>
 #include <unordered_map>
 #include <cmath>
+#include <cstdint>
 #include <thread>
 
 enum class FilterMode {
@@ -96,6 +97,67 @@ static inline int coarseCellValue(Generator *g, int worldX, int worldZ, FilterMo
     return passCoarseCaveCell(&g->bn, nx, nz, COARSE_SAMPLE_FLAGS) ? 1 : 0;
 }
 
+/** Build C>thr mask at `scale`, then Chebyshev-dilate by `dilate` tiles. */
+static std::vector<uint8_t> buildDilatedContPrefilterMask(
+    Generator *g, int startX, int startZ, int sx, int sz,
+    int scale, double thr, int dilate)
+{
+    const int W = sx / scale;
+    const int H = sz / scale;
+    std::vector<uint8_t> keep((size_t) std::max(0, W) * std::max(0, H), 0);
+    if (W <= 0 || H <= 0)
+        return keep;
+
+    for (int z = 0; z < H; z++)
+    {
+        const int worldZ = startZ + z * scale + scale / 2;
+        for (int x = 0; x < W; x++)
+        {
+            const int worldX = startX + x * scale + scale / 2;
+            if (passContinentalnessPartialThr(&g->bn, worldX / 4, worldZ / 4, thr))
+                keep[(size_t) z * W + x] = 1;
+        }
+    }
+
+    if (dilate <= 0)
+        return keep;
+
+    std::vector<uint8_t> out = keep;
+    for (int z = 0; z < H; z++)
+    {
+        for (int x = 0; x < W; x++)
+        {
+            if (!keep[(size_t) z * W + x])
+                continue;
+            for (int dz = -dilate; dz <= dilate; dz++)
+            {
+                for (int dx = -dilate; dx <= dilate; dx++)
+                {
+                    const int nx = x + dx;
+                    const int nz = z + dz;
+                    if (nx < 0 || nz < 0 || nx >= W || nz >= H)
+                        continue;
+                    out[(size_t) nz * W + nx] = 1;
+                }
+            }
+        }
+    }
+    return out;
+}
+
+static inline bool contPrefilterAllows(
+    const std::vector<uint8_t> &mask, int maskW, int maskH,
+    int startX, int startZ, int preScale, int worldX, int worldZ)
+{
+    if (mask.empty() || maskW <= 0 || maskH <= 0 || preScale <= 0)
+        return true;
+    const int tx = (worldX - startX) / preScale;
+    const int tz = (worldZ - startZ) / preScale;
+    if (tx < 0 || tz < 0 || tx >= maskW || tz >= maskH)
+        return false;
+    return mask[(size_t) tz * maskW + tx] != 0;
+}
+
 static void fillPreciseGrid(Generator *g, int startX, int startZ, int W, int H,
                             std::vector<int> &rawRiver, std::vector<int> &rawCave)
 {
@@ -155,12 +217,17 @@ std::vector<Res> findBiggestRiver(
     int min,
     double f,
     FilterMode mode,
-    float riverWeight = 0.7f) noexcept
+    float riverWeight = 0.7f,
+    const std::vector<uint8_t> *contPrefilter = nullptr,
+    int contPrefilterScale = 0) noexcept
 {
     std::vector<Res> result;
     const int W = sx / scale;
     const int H = sz / scale;
     if (W <= 0 || H <= 0) return result;
+
+    const int preW = (contPrefilter && contPrefilterScale > 0) ? (sx / contPrefilterScale) : 0;
+    const int preH = (contPrefilter && contPrefilterScale > 0) ? (sz / contPrefilterScale) : 0;
 
     const int stride = W + 1;
     std::vector<int> rawRiver((size_t) W * H, 0);
@@ -181,6 +248,13 @@ std::vector<Res> findBiggestRiver(
             for (int x = 0; x < W; x++)
             {
                 const int worldX = startX + x * scale + scale / 2;
+                if (contPrefilter &&
+                    !contPrefilterAllows(*contPrefilter, preW, preH,
+                                         startX, startZ, contPrefilterScale, worldX, worldZ))
+                {
+                    RAWR(x, z) = 0;
+                    continue;
+                }
                 RAWR(x, z) = coarseCellValue(g, worldX, worldZ, mode);
             }
         }
@@ -351,9 +425,16 @@ void findBiggestRiverParallelPool(
                     const int csx = startX + x;
                     const int csz = startZ + z;
 
+                    const auto contMask = buildDilatedContPrefilterMask(
+                        &localG, csx, csz, currentSx, currentSz,
+                        SearchConfig::PHASE1_CONT_PREFILTER_SCALE,
+                        SearchConfig::PHASE1_CONT_PREFILTER_THRESHOLD,
+                        SearchConfig::PHASE1_CONT_PREFILTER_DILATE);
+
                     auto blockResultsX16 = findBiggestRiver<SearchConfig::PHASE1_WEIRDNESS_GRID_SCALE>(
                         &localG, csx, csz, currentSx, currentSz,
-                        minArea, 0.8, phase1CoarseToFilter(SearchConfig::PHASE1_COARSE_FILTER));
+                        minArea, 0.8, phase1CoarseToFilter(SearchConfig::PHASE1_COARSE_FILTER),
+                        0.7f, &contMask, SearchConfig::PHASE1_CONT_PREFILTER_SCALE);
 
                     const int bx = currentSx / 256 + 2;
                     const int bz = currentSz / 256 + 2;

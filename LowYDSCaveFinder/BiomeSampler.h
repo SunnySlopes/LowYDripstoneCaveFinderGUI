@@ -15,6 +15,8 @@ static constexpr double CONT_PARTIAL_FINAL_THRESHOLD = 0.55;
 bool passCaveWeirdness(const BiomeNoise *bn, int bx, int bz, uint32_t sample_flags);
 bool passCaveClimate(const BiomeNoise *bn, int bx, int bz, uint32_t sample_flags);
 bool passContinentalnessPartial(const BiomeNoise *bn, int bx, int bz);
+/** Same octave early-exit path; final compare uses threshold (climate units). */
+bool passContinentalnessPartialThr(const BiomeNoise *bn, int bx, int bz, double threshold);
 bool passCoarseCaveCell(const BiomeNoise *bn, int bx, int bz, uint32_t sample_flags);
 void samplePreciseCell(const Generator *g, int worldX, int worldZ, int *riverHits, int *caveHits);
 

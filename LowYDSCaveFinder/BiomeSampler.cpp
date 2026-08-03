@@ -31,7 +31,7 @@ static double sampleContOctB(const DoublePerlinNoise *dpn, int idx, double x, do
     return p->amplitude * samplePerlin(p, ax, ay, az, 0, 0);
 }
 
-bool passContinentalnessPartial(const BiomeNoise *bn, int bx, int bz)
+bool passContinentalnessPartialThr(const BiomeNoise *bn, int bx, int bz, double threshold)
 {
     const DoublePerlinNoise *dpn = &bn->climate[NP_CONTINENTALNESS];
     // sampleDoublePerlin scales octA+octB by this; keep running sum in climate units
@@ -70,7 +70,12 @@ bool passContinentalnessPartial(const BiomeNoise *bn, int bx, int bz)
         return false;
 
     sum += amp * (sampleContOctA(dpn, 4, x, y, z) + sampleContOctB(dpn, 4, x, y, z));
-    return sum > CONT_PARTIAL_FINAL_THRESHOLD;
+    return sum > threshold;
+}
+
+bool passContinentalnessPartial(const BiomeNoise *bn, int bx, int bz)
+{
+    return passContinentalnessPartialThr(bn, bx, bz, CONT_PARTIAL_FINAL_THRESHOLD);
 }
 
 static int quantWeirdness(const BiomeNoise *bn, int bx, int bz, uint32_t sample_flags)

@@ -11,10 +11,18 @@ enum class Phase1CoarseFilter {
     WeirdThenCont = 3,
 };
 
-/** Phase1a 默认粗滤：C partial → Weirdness（AND），由主仓库基准选定。 */
+/** Phase1a 默认粗滤：C partial → Weirdness（AND）。 */
 constexpr Phase1CoarseFilter PHASE1_COARSE_FILTER = Phase1CoarseFilter::ContThenWeird;
 
-/** Phase1 环状扫描网格步长（方块），Phase1a 粗滤。 */
+/**
+ * Phase1 预筛：先按此步长采大陆性，超过 CONT_PREFILTER_THRESHOLD 的 tile
+ * 再膨胀 CONT_PREFILTER_DILATE 圈，之后只在掩膜内做 PHASE1_WEIRDNESS_GRID_SCALE 扫描。
+ */
+constexpr int PHASE1_CONT_PREFILTER_SCALE = 64;
+constexpr double PHASE1_CONT_PREFILTER_THRESHOLD = 0.525;
+constexpr int PHASE1_CONT_PREFILTER_DILATE = 1;
+
+/** Phase1 环状扫描网格步长（方块），Phase1a 粗滤（预筛之后）。 */
 constexpr int PHASE1_WEIRDNESS_GRID_SCALE = 16;
 
 /** Phase1 气候精筛网格步长（方块）。 */
@@ -34,6 +42,8 @@ constexpr int SUBSEARCH_SIZE_BLOCKS = SUBSEARCH_RADIUS_BLOCKS * 2;
 constexpr int REFINE_WINDOW_BLOCKS = 320;
 constexpr int REFINE_HALF_WINDOW = REFINE_WINDOW_BLOCKS / 2;
 
+static_assert(PHASE1_CONT_PREFILTER_SCALE % PHASE1_WEIRDNESS_GRID_SCALE == 0,
+              "PHASE1_CONT_PREFILTER_SCALE must be a multiple of PHASE1_WEIRDNESS_GRID_SCALE");
 static_assert(PHASE1_WEIRDNESS_GRID_SCALE % PHASE1_CLIMATE_GRID_SCALE == 0,
               "PHASE1_WEIRDNESS_GRID_SCALE must be a multiple of PHASE1_CLIMATE_GRID_SCALE");
 
