@@ -70,11 +70,34 @@ tasks.register('buildAllJars') {
     dependsOn buildMainJar
 }
 
-// Prebuilt native libraries only. Build DLL in LowYDSCaveFinder/, then copy to native/windows/.
+// Prebuilt native libraries: buildMainJar triggers Windows JNI build when possible.
 def generatedNativeResourcesDir = layout.buildDirectory.dir('generated/native-resources')
+def windowsDll = file('native/windows/libDripstoneCaveFinderLibJ.dll')
+def jniBat = file('LowYDSCaveFinder/build-jni.bat')
+
+tasks.register('buildNativeWindows', Exec) {
+    group = 'build'
+    description = 'Builds libDripstoneCaveFinderLibJ.dll via LowYDSCaveFinder/build-jni.bat'
+    workingDir = file('LowYDSCaveFinder')
+    commandLine 'cmd', '/c', 'build-jni.bat'
+    onlyIf {
+        System.getProperty('os.name').toLowerCase().contains('windows') && jniBat.exists()
+    }
+    inputs.files(
+        fileTree('LowYDSCaveFinder') {
+            include 'BiomeSampler.cpp', 'BiomeSampler.h', 'river_finder.cpp', 'SearchConfig.h',
+                    'build-jni.bat', 'Thread.h',
+                    'native/jni/**/*.cpp', 'native/jni/**/*.h'
+        }
+    )
+    outputs.file(windowsDll)
+}
+
 tasks.register('prepareNativeResources') {
     group = 'build'
     description = 'Collects prebuilt dll/so/dylib from native/ into jar resources'
+    dependsOn tasks.named('buildNativeWindows')
+    inputs.files(windowsDll)
     outputs.dir(generatedNativeResourcesDir)
     doLast {
         def outDir = generatedNativeResourcesDir.get().asFile
@@ -85,10 +108,10 @@ tasks.register('prepareNativeResources') {
         def linuxDir = file('native/linux')
         def macosDir = file('native/macos')
 
-        if (!windowsDir.exists() || !file('native/windows/libDripstoneCaveFinderLibJ.dll').exists()) {
+        if (!windowsDll.exists()) {
             throw new GradleException(
                 'Missing native/windows/libDripstoneCaveFinderLibJ.dll. ' +
-                'Build in LowYDSCaveFinder/ (native submodule) and copy the DLL to native/windows/.')
+                'Run LowYDSCaveFinder/build-jni.bat (needs sibling Cubitect cubiomes).')
         }
 
         copy {
@@ -116,4 +139,8 @@ tasks.register('prepareNativeResources') {
 tasks.named('processResources') {
     dependsOn tasks.named('prepareNativeResources')
     from(generatedNativeResourcesDir)
+}
+
+tasks.named('buildMainJar') {
+    dependsOn tasks.named('prepareNativeResources')
 }

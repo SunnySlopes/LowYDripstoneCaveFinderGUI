@@ -7,13 +7,37 @@
 #include <chrono>
 #include "Thread.h"
 #include "BiomeSampler.h"
+#include "SearchConfig.h"
 #include <functional>
 #include <ranges>
 #include <unordered_map>
 #include <cmath>
 #include <thread>
 
-enum class FilterMode { WeirdnessOnly, ClimateCoarse, PreciseBiome };
+enum class FilterMode {
+    WeirdnessOnly,
+    ContinentalnessOnly,
+    ContThenWeird,
+    WeirdThenCont,
+    ClimateCoarse,
+    PreciseBiome
+};
+
+static FilterMode phase1CoarseToFilter(SearchConfig::Phase1CoarseFilter f)
+{
+    switch (f)
+    {
+    case SearchConfig::Phase1CoarseFilter::ContinentalnessOnly:
+        return FilterMode::ContinentalnessOnly;
+    case SearchConfig::Phase1CoarseFilter::ContThenWeird:
+        return FilterMode::ContThenWeird;
+    case SearchConfig::Phase1CoarseFilter::WeirdThenCont:
+        return FilterMode::WeirdThenCont;
+    case SearchConfig::Phase1CoarseFilter::WeirdnessOnly:
+    default:
+        return FilterMode::WeirdnessOnly;
+    }
+}
 
 struct RingMask {
     struct Row { int dz; int out; int in; };
@@ -54,10 +78,22 @@ static inline int coarseCellValue(Generator *g, int worldX, int worldZ, FilterMo
     const int nz = worldZ / 4;
     if (mode == FilterMode::WeirdnessOnly)
         return passCaveWeirdness(&g->bn, nx, nz, COARSE_SAMPLE_FLAGS) ? 1 : 0;
+    if (mode == FilterMode::ContinentalnessOnly)
+        return passContinentalnessPartial(&g->bn, nx, nz) ? 1 : 0;
+    if (mode == FilterMode::ContThenWeird)
+    {
+        if (!passContinentalnessPartial(&g->bn, nx, nz))
+            return 0;
+        return passCaveWeirdness(&g->bn, nx, nz, COARSE_SAMPLE_FLAGS) ? 1 : 0;
+    }
+    if (mode == FilterMode::WeirdThenCont)
+    {
+        if (!passCaveWeirdness(&g->bn, nx, nz, COARSE_SAMPLE_FLAGS))
+            return 0;
+        return passContinentalnessPartial(&g->bn, nx, nz) ? 1 : 0;
+    }
 
-    if (!passCaveWeirdness(&g->bn, nx, nz, COARSE_SAMPLE_FLAGS))
-        return 0;
-    return passCaveClimate(&g->bn, nx, nz, COARSE_SAMPLE_FLAGS) ? 1 : 0;
+    return passCoarseCaveCell(&g->bn, nx, nz, COARSE_SAMPLE_FLAGS) ? 1 : 0;
 }
 
 static void fillPreciseGrid(Generator *g, int startX, int startZ, int W, int H,
@@ -315,9 +351,9 @@ void findBiggestRiverParallelPool(
                     const int csx = startX + x;
                     const int csz = startZ + z;
 
-                    auto blockResultsX16 = findBiggestRiver<16>(
+                    auto blockResultsX16 = findBiggestRiver<SearchConfig::PHASE1_WEIRDNESS_GRID_SCALE>(
                         &localG, csx, csz, currentSx, currentSz,
-                        minArea, 0.8, FilterMode::WeirdnessOnly);
+                        minArea, 0.8, phase1CoarseToFilter(SearchConfig::PHASE1_COARSE_FILTER));
 
                     const int bx = currentSx / 256 + 2;
                     const int bz = currentSz / 256 + 2;

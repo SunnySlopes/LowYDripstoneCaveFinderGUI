@@ -49,7 +49,10 @@ LowYDSCaveFinder/build-mingw/
 LowYDSCaveFinder/native/jni/build/
 LowYDSCaveFinder/*.o
 LowYDSCaveFinder/*.a
+LowYDSCaveFinder/*.exe
 LowYDSCaveFinder/cubiomes_*.c
+# Do not vendor a second cubiomes tree; JNI uses sibling Cubitect cubiomes
+LowYDSCaveFinder/cubiomes_flat/
 
 ### Prebuilt native libraries (required for Gradle JAR packaging) ###
 native/
