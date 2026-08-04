@@ -161,20 +161,7 @@ static inline bool contPrefilterAllows(
 static void fillPreciseGrid(Generator *g, int startX, int startZ, int W, int H,
                             std::vector<int> &rawRiver, std::vector<int> &rawCave)
 {
-    for (int z = 0; z < H; z++)
-    {
-        const int worldZ = startZ + z;
-        for (int x = 0; x < W; x++)
-        {
-            const int worldX = startX + x;
-            int riverHits = 0;
-            int caveHits = 0;
-            samplePreciseCell(g, worldX, worldZ, &riverHits, &caveHits);
-            const size_t idx = (size_t) x + (size_t) z * W;
-            rawRiver[idx] = riverHits;
-            rawCave[idx] = caveHits;
-        }
-    }
+    fillPreciseWindow(g, startX, startZ, W, H, rawRiver, rawCave);
 }
 
 struct Point {

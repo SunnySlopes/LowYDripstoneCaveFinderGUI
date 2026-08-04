@@ -43,6 +43,18 @@ static void resetProgressState()
     progress.try_stop.store(false);
 }
 
+/** Truncate sorted Phase1 candidates to those with area >= best * opV (opV<=0 keeps all). */
+static void applyPreserveRange(std::vector<Res> &res, float opV)
+{
+    if (opV <= 0.0f || res.empty())
+        return;
+    const double thr = (double) res[0].area * (double) opV;
+    size_t keep = 0;
+    while (keep < res.size() && (double) res[keep].area >= thr)
+        keep++;
+    res.resize(keep);
+}
+
 JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge_riverSearch
   (JNIEnv *env, jclass, jlong seed, jint startX, jint startZ,
    jint width, jint height, jint /*y*/, jint minArea, jfloat opV, jfloat riverWeight, jint numThreads)
@@ -51,7 +63,7 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
 
     if (riverWeight < 0.0f) riverWeight = 0.0f;
     if (riverWeight > 1.0f) riverWeight = 1.0f;
-    (void) opV;
+
     Generator g;
     setupGenerator(&g, MC_1_21_3, FORCE_OCEAN_VARIANTS);
     applySeed(&g, DIM_OVERWORLD, (uint64_t) seed);
@@ -61,6 +73,8 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
     progress.phase1.store(1);
 
     int threads = numThreads > 0 ? numThreads : static_cast<int>(std::thread::hardware_concurrency());
+    if (threads < 1) threads = 1;
+
     try {
         findBiggestRiverParallelPool(globalResults, &g, startX, startZ, width, height, minArea, &progress, threads);
     } catch (const std::bad_alloc &) {
@@ -77,32 +91,73 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
         return nullptr;
     }
 
+    std::ranges::sort(res, [](const Res &a, const Res &b) { return a.area > b.area; });
+    applyPreserveRange(res, opV);
+
     progress.phase1.store(2);
     progress.total.store(static_cast<int>(res.size()));
     progress.current.store(0);
     progress.chunkInRunning.store(0);
 
-    std::ranges::sort(res, [](const Res &a, const Res &b) { return a.area > b.area; });
-
     globalResults.clear();
-    for (const auto &it: res)
-    {
-        while (progress.try_pause.load())
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
-        if (progress.try_stop.load()) {
+    if (!res.empty())
+    {
+        try {
+            ThreadPool pool((size_t) threads);
+            for (const auto &it: res)
+            {
+                if (progress.try_stop.load())
+                    break;
+                pool.enqueue([&, cand = it, seedVal = (uint64_t) seed, minArea, riverWeight]() {
+                    if (progress.try_stop.load())
+                        return;
+                    while (progress.try_pause.load())
+                    {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                        if (progress.try_stop.load())
+                            return;
+                    }
+                    progress.chunkInRunning.fetch_add(1);
+
+                    // Per-worker Generator: setup once, re-seed when seed changes.
+                    thread_local Generator tlsG;
+                    thread_local bool tlsInited = false;
+                    thread_local uint64_t tlsSeed = ~0ull;
+                    if (!tlsInited)
+                    {
+                        setupGenerator(&tlsG, MC_1_21_3, FORCE_OCEAN_VARIANTS);
+                        tlsInited = true;
+                    }
+                    if (tlsSeed != seedVal)
+                    {
+                        applySeed(&tlsG, DIM_OVERWORLD, seedVal);
+                        tlsSeed = seedVal;
+                    }
+
+                    auto temp = findBiggestRiver<1>(
+                        &tlsG, cand.point.x - 160, cand.point.y - 160, 320, 320,
+                        minArea, 1.0, FilterMode::PreciseBiome, riverWeight);
+
+                    if (!temp.empty() && temp[0].area >= minArea)
+                        globalResults.addResult(temp[0]);
+
+                    progress.chunkInRunning.fetch_sub(1);
+                    progress.current.fetch_add(1);
+                });
+            }
+        } catch (const std::bad_alloc &) {
+            resetProgressState();
+            return nullptr;
+        } catch (const std::exception &) {
             resetProgressState();
             return nullptr;
         }
+    }
 
-        auto temp = findBiggestRiver<1>(
-            &g, it.point.x - 160, it.point.y - 160, 320, 320,
-            minArea, 1.0, FilterMode::PreciseBiome, riverWeight);
-
-        if (!temp.empty() && temp[0].area >= minArea)
-            globalResults.addResult(temp[0]);
-
-        progress.current.fetch_add(1);
+    if (progress.try_stop.load()) {
+        resetProgressState();
+        return nullptr;
     }
 
     auto finalList = dedup(globalResults.getAllResults());

@@ -2,6 +2,8 @@
 #include "cubiomes/biomes.h"
 #include "cubiomes/noise.h"
 #include <cstdlib>
+#include <cstdint>
+#include <unordered_map>
 
 const int PRECISE_YS[PRECISE_Y_COUNT] = { -60, -56, -52 };
 
@@ -130,10 +132,105 @@ void samplePreciseCell(const Generator *g, int worldX, int worldZ, int *riverHit
     if (!passCaveClimate(&g->bn, bx, bz, COARSE_SAMPLE_FLAGS))
         return;
 
+    // Reuse a thread-local 1×1×sy cache instead of alloc/free per Y sample.
+    const int y0 = PRECISE_YS[0];
+    const int sy = PRECISE_YS[PRECISE_Y_COUNT - 1] - y0 + 1;
+    Range r = {1, worldX, worldZ, 1, 1, y0, sy};
+
+    thread_local int *tlsCache = nullptr;
+    thread_local size_t tlsCap = 0;
+    const size_t need = getMinCacheSize(g, r.scale, r.sx, r.sy, r.sz);
+    if (need == 0)
+        return;
+    if (tlsCap < need)
+    {
+        free(tlsCache);
+        tlsCache = (int *) calloc(need, sizeof(int));
+        tlsCap = tlsCache ? need : 0;
+    }
+    if (!tlsCache)
+        return;
+
+    if (genBiomes(g, tlsCache, r) != 0)
+        return;
+
     for (int i = 0; i < PRECISE_Y_COUNT; i++)
     {
-        const int id = getBiomeAt(g, 1, worldX, PRECISE_YS[i], worldZ);
+        const int yi = PRECISE_YS[i] - y0;
+        const int id = tlsCache[yi];
         *riverHits += (id == river);
         *caveHits += (id == dripstone_caves);
     }
+}
+
+void fillPreciseWindow(Generator *g, int startX, int startZ, int W, int H,
+                       std::vector<int> &rawRiver, std::vector<int> &rawCave)
+{
+    const size_t n = (size_t) W * (size_t) H;
+    rawRiver.assign(n, 0);
+    rawCave.assign(n, 0);
+    if (W <= 0 || H <= 0)
+        return;
+
+    std::vector<uint8_t> climatePass(n, 0);
+    std::unordered_map<uint64_t, uint8_t> climCache;
+    climCache.reserve((size_t) (W / 4 + 2) * (size_t) (H / 4 + 2));
+
+    bool anyPass = false;
+    for (int z = 0; z < H; z++)
+    {
+        const int worldZ = startZ + z;
+        for (int x = 0; x < W; x++)
+        {
+            const int worldX = startX + x;
+            const int bx = worldX / 4;
+            const int bz = worldZ / 4;
+            const uint64_t key = ((uint64_t) (uint32_t) bx << 32) | (uint32_t) bz;
+            auto it = climCache.find(key);
+            if (it == climCache.end())
+            {
+                const uint8_t ok = passCaveClimate(&g->bn, bx, bz, COARSE_SAMPLE_FLAGS) ? 1 : 0;
+                it = climCache.emplace(key, ok).first;
+            }
+            climatePass[(size_t) x + (size_t) z * W] = it->second;
+            anyPass = anyPass || it->second;
+        }
+    }
+    if (!anyPass)
+        return;
+
+    const int y0 = PRECISE_YS[0];
+    const int sy = PRECISE_YS[PRECISE_Y_COUNT - 1] - y0 + 1;
+    Range r = {1, startX, startZ, W, H, y0, sy};
+    int *cache = allocCache(g, r);
+    if (!cache)
+        return;
+    if (genBiomes(g, cache, r) != 0)
+    {
+        free(cache);
+        return;
+    }
+
+    const size_t plane = n;
+    for (int z = 0; z < H; z++)
+    {
+        for (int x = 0; x < W; x++)
+        {
+            const size_t idx = (size_t) x + (size_t) z * W;
+            if (!climatePass[idx])
+                continue;
+            int riverHits = 0;
+            int caveHits = 0;
+            for (int i = 0; i < PRECISE_Y_COUNT; i++)
+            {
+                const int yi = PRECISE_YS[i] - y0;
+                const int id = cache[(size_t) yi * plane + idx];
+                riverHits += (id == river);
+                caveHits += (id == dripstone_caves);
+            }
+            rawRiver[idx] = riverHits;
+            rawCave[idx] = caveHits;
+        }
+    }
+    free(cache);
 }

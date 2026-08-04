@@ -3,6 +3,7 @@
 
 #include "cubiomes/biomenoise.h"
 #include "cubiomes/generator.h"
+#include <vector>
 
 static constexpr int PRECISE_Y_COUNT = 3;
 extern const int PRECISE_YS[PRECISE_Y_COUNT];
@@ -19,5 +20,12 @@ bool passContinentalnessPartial(const BiomeNoise *bn, int bx, int bz);
 bool passContinentalnessPartialThr(const BiomeNoise *bn, int bx, int bz, double threshold);
 bool passCoarseCaveCell(const BiomeNoise *bn, int bx, int bz, uint32_t sample_flags);
 void samplePreciseCell(const Generator *g, int worldX, int worldZ, int *riverHits, int *caveHits);
+
+/**
+ * Fill W×H precise river/cave hit grids for a refine window.
+ * Uses (bx,bz) climate-gate cache and one scale-1 volume genBiomes over PRECISE_YS.
+ */
+void fillPreciseWindow(Generator *g, int startX, int startZ, int W, int H,
+                       std::vector<int> &rawRiver, std::vector<int> &rawCave);
 
 #endif
