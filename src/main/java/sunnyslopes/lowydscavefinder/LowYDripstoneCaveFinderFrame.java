@@ -19,12 +19,12 @@ import static sunnyslopes.lowydscavefinder.LowYDripstoneCaveSearchRunner.DEFAULT
 public class LowYDripstoneCaveFinderFrame extends JFrame {
     // ResourceBundle for internationalization
     private ResourceBundle messages;
-    // 默认值 - 单种子搜索（块坐标）
+    // Default for single-seed search (block coords); side = 131072
     private static final int DEFAULT_MIN_X = -65536;
     private static final int DEFAULT_MAX_X = 65535;
     private static final int DEFAULT_MIN_Z = -65536;
     private static final int DEFAULT_MAX_Z = 65535;
-    // 默认值 - 世界边界（块坐标）
+    // World border (block coords); side = 60000001
     private static final int BOUNDARY_MIN_X = -30000000;
     private static final int BOUNDARY_MAX_X = 30000000;
     private static final int BOUNDARY_MIN_Z = -30000000;
@@ -67,12 +67,16 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JTextField maxXField;
     private JTextField minZField;
     private JTextField maxZField;
+    private JCheckBox squareSideCheckBox;
+    private JTextField squareSideField;
+    private boolean squareSideUpdating = false;
     private JComboBox<String> languageComboBox;
     private boolean searchRiverParamUpdating = false;
     private JButton searchStartButton;
     private JButton searchPauseButton;
     private JButton searchStopButton;
     private JButton searchResetButton;
+    private JButton searchResetToWorldBorderButton;
     private JButton searchExportButton;
     private JButton searchSortButton;
     private JProgressBar searchProgressBar;
@@ -121,6 +125,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JTextField listMaxXField;
     private JTextField listMinZField;
     private JTextField listMaxZField;
+    private JCheckBox listSquareSideCheckBox;
+    private JTextField listSquareSideField;
+    private boolean listSquareSideUpdating = false;
     private boolean listRiverParamUpdating = false;
     private JButton listSearchStartButton;
     private JButton listSearchPauseButton;
@@ -419,9 +426,46 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         });
         inputPanel.add(maxZField, gbc);
 
-        // 语言选择下拉框
+        // 正方形区域边长（勾选后按中心 0,0 填入 min/max）
         gbc.gridx = 0;
         gbc.gridy = 9;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        squareSideCheckBox = new JCheckBox(getString("label.squareSide"));
+        squareSideCheckBox.setFont(getLoadedFont());
+        inputPanel.add(squareSideCheckBox, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        long defaultSide = (long) DEFAULT_MAX_X - DEFAULT_MIN_X + 1;
+        squareSideField = new JTextField(String.valueOf(defaultSide), 20);
+        squareSideCheckBox.setSelected(true);
+        squareSideCheckBox.addActionListener(e -> onSquareSideModeToggled());
+        squareSideField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                applySquareSideToBounds();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                applySquareSideToBounds();
+            }
+
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                applySquareSideToBounds();
+            }
+        });
+        squareSideField.addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusLost(java.awt.event.FocusEvent e) {
+                validateIntegerInput(squareSideField, getString("label.squareSide").replace(":", ""));
+            }
+        });
+        inputPanel.add(squareSideField, gbc);
+        applyBoundFieldEnableState(true);
+        applySquareSideToBounds();
+
+        // 语言选择下拉框
+        gbc.gridx = 0;
+        gbc.gridy = 10;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         searchLanguageLabel = new JLabel(getString("label.language"));
@@ -430,7 +474,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         gbc.gridx = 1;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
-        String[] languageOptions = {"Chinese", "English"};
+        String[] languageOptions = {"中文", "English"};
         languageComboBox = new JComboBox<>(languageOptions);
         // 根据当前语言设置默认选项
         if (currentLocale.getLanguage().equals("zh")) {
@@ -447,12 +491,14 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchPauseButton = new JButton(getString("button.pause"));
         searchStopButton = new JButton(getString("button.stop"));
         searchResetButton = new JButton(getString("button.reset"));
+        searchResetToWorldBorderButton = new JButton(getString("button.resetToWorldBorder"));
         searchPauseButton.setEnabled(false);
         searchStopButton.setEnabled(false);
         buttonPanel.add(searchStartButton);
         buttonPanel.add(searchPauseButton);
         buttonPanel.add(searchStopButton);
         buttonPanel.add(searchResetButton);
+        buttonPanel.add(searchResetToWorldBorderButton);
 
         // Static credit text above buttons
         JPanel creditPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
@@ -532,6 +578,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchPauseButton.addActionListener(e -> toggleSearchPause());
         searchStopButton.addActionListener(e -> stopSearch());
         searchResetButton.addActionListener(e -> resetSearchToDefaults());
+        searchResetToWorldBorderButton.addActionListener(e -> resetSearchToWorldBorder());
 
         // 添加输入字段监听，检测参数变化
         addSearchParameterListeners();
@@ -652,15 +699,13 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 searchPauseButton.setText(getString("button.pause"));
                 searchStopButton.setEnabled(false);
                 searchResetButton.setEnabled(true);
+                if (searchResetToWorldBorderButton != null) searchResetToWorldBorderButton.setEnabled(true);
                 searchSeedField.setEnabled(true);
                 searchThreadCountField.setEnabled(true);
                 searchMinRiverAreaField.setEnabled(true);
                 searchMinRiverRatioField.setEnabled(true);
                 searchRiverWeightField.setEnabled(true);
-                minXField.setEnabled(true);
-                maxXField.setEnabled(true);
-                minZField.setEnabled(true);
-                maxZField.setEnabled(true);
+                applyBoundFieldEnableState(true);
                 if (languageComboBox != null) {
                     languageComboBox.setEnabled(true);
                 }
@@ -1066,15 +1111,13 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             searchPauseButton.setText(getString("button.pause"));
             searchStopButton.setEnabled(true);
             searchResetButton.setEnabled(false);
+            if (searchResetToWorldBorderButton != null) searchResetToWorldBorderButton.setEnabled(false);
             searchSeedField.setEnabled(false);
             searchThreadCountField.setEnabled(false);
             searchMinRiverAreaField.setEnabled(false);
             searchMinRiverRatioField.setEnabled(false);
             searchRiverWeightField.setEnabled(false);
-            minXField.setEnabled(false);
-            maxXField.setEnabled(false);
-            minZField.setEnabled(false);
-            maxZField.setEnabled(false);
+            applyBoundFieldEnableState(false);
             if (languageComboBox != null) languageComboBox.setEnabled(false);
             final long resultToken = singleSearchResultToken.incrementAndGet();
             searchResultArea.setText("");
@@ -1127,10 +1170,156 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     }
 
     private void resetSearchToDefaults() {
-        minXField.setText(String.valueOf(DEFAULT_MIN_X));
-        maxXField.setText(String.valueOf(DEFAULT_MAX_X));
-        minZField.setText(String.valueOf(DEFAULT_MIN_Z));
-        maxZField.setText(String.valueOf(DEFAULT_MAX_Z));
+        applySearchBounds(DEFAULT_MIN_X, DEFAULT_MAX_X, DEFAULT_MIN_Z, DEFAULT_MAX_Z);
+    }
+
+    private void resetSearchToWorldBorder() {
+        applySearchBounds(BOUNDARY_MIN_X, BOUNDARY_MAX_X, BOUNDARY_MIN_Z, BOUNDARY_MAX_Z);
+    }
+
+    private void applySearchBounds(int minX, int maxX, int minZ, int maxZ) {
+        long side = (long) maxX - minX + 1;
+        if (squareSideCheckBox != null) {
+            squareSideCheckBox.setSelected(true);
+        }
+        if (squareSideField != null) {
+            squareSideUpdating = true;
+            squareSideField.setText(String.valueOf(side));
+            squareSideUpdating = false;
+        }
+        minXField.setText(String.valueOf(minX));
+        maxXField.setText(String.valueOf(maxX));
+        minZField.setText(String.valueOf(minZ));
+        maxZField.setText(String.valueOf(maxZ));
+        applyBoundFieldEnableState(!isSearchRunning);
+        applySquareSideToBounds();
+    }
+
+    private void onSquareSideModeToggled() {
+        applyBoundFieldEnableState(!isSearchRunning);
+        if (squareSideCheckBox != null && squareSideCheckBox.isSelected()) {
+            applySquareSideToBounds();
+        }
+    }
+
+    private void applyBoundFieldEnableState(boolean allowEdit) {
+        boolean squareMode = squareSideCheckBox != null && squareSideCheckBox.isSelected();
+        if (squareSideCheckBox != null) {
+            squareSideCheckBox.setEnabled(allowEdit);
+        }
+        if (squareSideField != null) {
+            squareSideField.setEnabled(allowEdit && squareMode);
+        }
+        boolean boundsEditable = allowEdit && !squareMode;
+        if (minXField != null) {
+            minXField.setEnabled(boundsEditable);
+        }
+        if (maxXField != null) {
+            maxXField.setEnabled(boundsEditable);
+        }
+        if (minZField != null) {
+            minZField.setEnabled(boundsEditable);
+        }
+        if (maxZField != null) {
+            maxZField.setEnabled(boundsEditable);
+        }
+    }
+
+    /** Fill min/max from square side length centered at (0, 0). Side = max - min + 1. */
+    private void applySquareSideToBounds() {
+        if (squareSideUpdating || squareSideCheckBox == null || !squareSideCheckBox.isSelected()) {
+            return;
+        }
+        if (squareSideField == null || minXField == null) {
+            return;
+        }
+        String text = squareSideField.getText().trim();
+        if (text.isEmpty()) {
+            return;
+        }
+        try {
+            long side = Long.parseLong(text);
+            if (side < 1) {
+                return;
+            }
+            long min = -side / 2;
+            long max = min + side - 1;
+            if (min < Integer.MIN_VALUE || max > Integer.MAX_VALUE) {
+                return;
+            }
+            squareSideUpdating = true;
+            minXField.setText(String.valueOf((int) min));
+            maxXField.setText(String.valueOf((int) max));
+            minZField.setText(String.valueOf((int) min));
+            maxZField.setText(String.valueOf((int) max));
+            squareSideUpdating = false;
+            checkSearchParameterChange();
+        } catch (NumberFormatException ignored) {
+            // wait until the field holds a valid integer
+        }
+    }
+
+    private void onListSquareSideModeToggled() {
+        applyListBoundFieldEnableState(!isListSearchRunning);
+        if (listSquareSideCheckBox != null && listSquareSideCheckBox.isSelected()) {
+            applyListSquareSideToBounds();
+        }
+    }
+
+    private void applyListBoundFieldEnableState(boolean allowEdit) {
+        boolean squareMode = listSquareSideCheckBox != null && listSquareSideCheckBox.isSelected();
+        if (listSquareSideCheckBox != null) {
+            listSquareSideCheckBox.setEnabled(allowEdit);
+        }
+        if (listSquareSideField != null) {
+            listSquareSideField.setEnabled(allowEdit && squareMode);
+        }
+        boolean boundsEditable = allowEdit && !squareMode;
+        if (listMinXField != null) {
+            listMinXField.setEnabled(boundsEditable);
+        }
+        if (listMaxXField != null) {
+            listMaxXField.setEnabled(boundsEditable);
+        }
+        if (listMinZField != null) {
+            listMinZField.setEnabled(boundsEditable);
+        }
+        if (listMaxZField != null) {
+            listMaxZField.setEnabled(boundsEditable);
+        }
+    }
+
+    private void applyListSquareSideToBounds() {
+        if (listSquareSideUpdating || listSquareSideCheckBox == null || !listSquareSideCheckBox.isSelected()) {
+            return;
+        }
+        if (listSquareSideField == null || listMinXField == null) {
+            return;
+        }
+        String text = listSquareSideField.getText().trim();
+        if (text.isEmpty()) {
+            return;
+        }
+        try {
+            long side = Long.parseLong(text);
+            if (side < 1) {
+                return;
+            }
+            long min = -side / 2;
+            long max = min + side - 1;
+            if (min < Integer.MIN_VALUE || max > Integer.MAX_VALUE) {
+                return;
+            }
+            listSquareSideUpdating = true;
+            listMinXField.setText(String.valueOf((int) min));
+            listMaxXField.setText(String.valueOf((int) max));
+            listMinZField.setText(String.valueOf((int) min));
+            listMaxZField.setText(String.valueOf((int) max));
+            listSquareSideUpdating = false;
+            checkListSearchParameterChange();
+        } catch (NumberFormatException ignored) {
+            // wait until the field holds a valid integer
+        }
     }
 
     // 创建从种子列表搜索面板
@@ -1317,6 +1506,43 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         });
         inputPanel.add(listMaxZField, gbc);
 
+        // 正方形区域边长（勾选后按中心 0,0 填入 min/max）
+        gbc.gridx = 0;
+        gbc.gridy = 9;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        listSquareSideCheckBox = new JCheckBox(getString("label.squareSide"));
+        listSquareSideCheckBox.setFont(getLoadedFont());
+        inputPanel.add(listSquareSideCheckBox, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        long listDefaultSide = (long) DEFAULT_LIST_MAX_X - DEFAULT_LIST_MIN_X + 1;
+        listSquareSideField = new JTextField(String.valueOf(listDefaultSide), 20);
+        listSquareSideCheckBox.setSelected(true);
+        listSquareSideCheckBox.addActionListener(e -> onListSquareSideModeToggled());
+        listSquareSideField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                applyListSquareSideToBounds();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                applyListSquareSideToBounds();
+            }
+
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                applyListSquareSideToBounds();
+            }
+        });
+        listSquareSideField.addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusLost(java.awt.event.FocusEvent e) {
+                validateIntegerInput(listSquareSideField, getString("label.squareSide").replace(":", ""));
+            }
+        });
+        inputPanel.add(listSquareSideField, gbc);
+        applyListBoundFieldEnableState(true);
+        applyListSquareSideToBounds();
+
         // 列表 Tab 内面积↔占比：仅 focusLost 时联动，避免输入时被覆盖
 
         // 按钮区域
@@ -1483,15 +1709,13 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchPauseButton.setText(getString("button.pause"));
         searchStopButton.setEnabled(false);
         searchResetButton.setEnabled(true);
+        if (searchResetToWorldBorderButton != null) searchResetToWorldBorderButton.setEnabled(true);
         searchSeedField.setEnabled(true);
         searchThreadCountField.setEnabled(true);
         searchMinRiverAreaField.setEnabled(true);
         searchMinRiverRatioField.setEnabled(true);
         searchRiverWeightField.setEnabled(true);
-        minXField.setEnabled(true);
-        maxXField.setEnabled(true);
-        minZField.setEnabled(true);
-        maxZField.setEnabled(true);
+        applyBoundFieldEnableState(true);
         if (languageComboBox != null) languageComboBox.setEnabled(true);
     }
 
@@ -1648,23 +1872,13 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             return;
         }
 
-        // 获取选择的语言（从第一个tab的语言下拉框获取）
-        String selectedLanguage = null;
-        if (languageComboBox != null) {
-            selectedLanguage = (String) languageComboBox.getSelectedItem();
-        }
-
-        if (selectedLanguage == null) {
+        // 获取选择的语言（用 index，避免中英文选项文案不一致）
+        int selectedIndex = languageComboBox != null ? languageComboBox.getSelectedIndex() : -1;
+        if (selectedIndex < 0) {
             return;
         }
 
-        // 根据选择设置Locale
-        Locale newLocale;
-        if ("中文".equals(selectedLanguage)) {
-            newLocale = new Locale("zh", "CN");
-        } else {
-            newLocale = new Locale("en", "US");
-        }
+        Locale newLocale = (selectedIndex == 0) ? new Locale("zh", "CN") : new Locale("en", "US");
 
         // 如果语言没有变化，不执行切换
         if (newLocale.equals(currentLocale)) {
@@ -1740,6 +1954,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (searchMaxZLabel != null) {
             searchMaxZLabel.setText(getString("label.maxZ"));
         }
+        if (squareSideCheckBox != null) {
+            squareSideCheckBox.setText(getString("label.squareSide"));
+        }
         if (searchLanguageLabel != null) {
             searchLanguageLabel.setText(getString("label.language"));
         }
@@ -1766,6 +1983,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         }
         if (searchResetButton != null) {
             searchResetButton.setText(getString("button.reset"));
+        }
+        if (searchResetToWorldBorderButton != null) {
+            searchResetToWorldBorderButton.setText(getString("button.resetToWorldBorder"));
         }
         if (searchExportButton != null) {
             searchExportButton.setText(getString("button.export"));
@@ -1809,6 +2029,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         }
         if (listSearchMaxZLabel != null) {
             listSearchMaxZLabel.setText(getString("label.maxZ"));
+        }
+        if (listSquareSideCheckBox != null) {
+            listSquareSideCheckBox.setText(getString("label.squareSide"));
         }
         if (listSearchMinRiverAreaLabel != null) {
             listSearchMinRiverAreaLabel.setText(getString("label.minRiverArea"));
@@ -2002,10 +2225,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 listMinRiverAreaField.setEnabled(true);
                 listMinRiverRatioField.setEnabled(true);
                 listRiverWeightField.setEnabled(true);
-                listMinXField.setEnabled(true);
-                listMaxXField.setEnabled(true);
-                listMinZField.setEnabled(true);
-                listMaxZField.setEnabled(true);
+                applyListBoundFieldEnableState(true);
                 listSearchResultToken.incrementAndGet();
                 listSearchResultArea.setText("");
                 listSearchProgressBar.setValue(0);
@@ -2255,10 +2475,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             listMinRiverAreaField.setEnabled(false);
             listMinRiverRatioField.setEnabled(false);
             listRiverWeightField.setEnabled(false);
-            listMinXField.setEnabled(false);
-            listMaxXField.setEnabled(false);
-            listMinZField.setEnabled(false);
-            listMaxZField.setEnabled(false);
+            applyListBoundFieldEnableState(false);
             final long listResultToken = listSearchResultToken.incrementAndGet();
             listSearchResultArea.setText("");
             listSearchProgressBar.setMaximum((int) seeds.size());
@@ -2476,11 +2693,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                     listSearchThreadCountField.setEnabled(true);
                     listMinRiverAreaField.setEnabled(true);
                     listMinRiverRatioField.setEnabled(true);
-                listRiverWeightField.setEnabled(true);
-                    listMinXField.setEnabled(true);
-                    listMaxXField.setEnabled(true);
-                    listMinZField.setEnabled(true);
-                    listMaxZField.setEnabled(true);
+                    listRiverWeightField.setEnabled(true);
+                    applyListBoundFieldEnableState(true);
                     listSearchProgressBar.setValue((int) totalSeeds);
                     listSearchProgressBar.setString(getString("progress.seedsDone", totalSeeds, totalSeeds));
                     listSearchCurrentSeedProgressLabel.setText(getString("currentSeed.complete"));
@@ -2525,18 +2739,30 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         listMinRiverAreaField.setEnabled(true);
         listMinRiverRatioField.setEnabled(true);
         listRiverWeightField.setEnabled(true);
-        listMinXField.setEnabled(true);
-        listMaxXField.setEnabled(true);
-        listMinZField.setEnabled(true);
-        listMaxZField.setEnabled(true);
+        applyListBoundFieldEnableState(true);
         listSearchRemainingTimeLabel.setText(getString("remainingTime.stopped"));
     }
 
     private void resetListSearchToDefaults() {
-        listMinXField.setText(String.valueOf(DEFAULT_LIST_MIN_X));
-        listMaxXField.setText(String.valueOf(DEFAULT_LIST_MAX_X));
-        listMinZField.setText(String.valueOf(DEFAULT_LIST_MIN_Z));
-        listMaxZField.setText(String.valueOf(DEFAULT_LIST_MAX_Z));
+        applyListSearchBounds(DEFAULT_LIST_MIN_X, DEFAULT_LIST_MAX_X, DEFAULT_LIST_MIN_Z, DEFAULT_LIST_MAX_Z);
+    }
+
+    private void applyListSearchBounds(int minX, int maxX, int minZ, int maxZ) {
+        long side = (long) maxX - minX + 1;
+        if (listSquareSideCheckBox != null) {
+            listSquareSideCheckBox.setSelected(true);
+        }
+        if (listSquareSideField != null) {
+            listSquareSideUpdating = true;
+            listSquareSideField.setText(String.valueOf(side));
+            listSquareSideUpdating = false;
+        }
+        listMinXField.setText(String.valueOf(minX));
+        listMaxXField.setText(String.valueOf(maxX));
+        listMinZField.setText(String.valueOf(minZ));
+        listMaxZField.setText(String.valueOf(maxZ));
+        applyListBoundFieldEnableState(!isListSearchRunning);
+        applyListSquareSideToBounds();
     }
 
     // 解析结果文本，返回种子与结果行（s=total 占比 cave river）的映射

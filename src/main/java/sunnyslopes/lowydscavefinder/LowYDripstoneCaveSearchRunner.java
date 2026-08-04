@@ -320,7 +320,11 @@ public class LowYDripstoneCaveSearchRunner {
                 long elapsed = getElapsedMs();
                 long remaining = 0L;
                 if (!isPaused && !refining && total > processed && processed > 0) {
-                    remaining = elapsed * (total - processed) / processed;
+                    // Use double to avoid long overflow on huge full-world totals
+                    double eta = elapsed * ((double) (total - processed) / (double) processed);
+                    if (eta > 0 && eta < (double) Long.MAX_VALUE) {
+                        remaining = (long) eta;
+                    }
                 }
                 progressCallback.accept(ProgressInfo.of(0, processed, total, elapsed, remaining, refining, pauseSettled, tryStop));
             } catch (Throwable ignored) {

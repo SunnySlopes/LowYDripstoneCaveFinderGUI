@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <iostream>
 #include <vector>
+#include <cstddef>
 
 template<typename T>
 class ThreadSafeResults {
@@ -76,10 +77,13 @@ private:
     std::queue<std::function<void()> > tasks;
     std::mutex queueMutex;
     std::condition_variable condition;
+    std::condition_variable spaceAvailable;
     std::atomic<bool> stop{false};
+    size_t maxQueueSize;
 
 public:
-    explicit ThreadPool(size_t threads)
+    explicit ThreadPool(size_t threads, size_t maxQueued = 0)
+        : maxQueueSize(maxQueued == 0 ? std::max<size_t>(threads * 4, 32) : maxQueued)
     {
         for (size_t i = 0; i < threads; ++i)
         {
@@ -96,6 +100,7 @@ public:
                             return;
                         task = std::move(this->tasks.front());
                         this->tasks.pop();
+                        this->spaceAvailable.notify_one();
                     }
                     task();
                 }
@@ -108,6 +113,11 @@ public:
     {
         {
             std::unique_lock<std::mutex> lock(queueMutex);
+            spaceAvailable.wait(lock, [this] {
+                return this->stop || this->tasks.size() < this->maxQueueSize;
+            });
+            if (stop)
+                return;
             tasks.emplace(std::forward<F>(f));
         }
         condition.notify_one();
@@ -115,8 +125,12 @@ public:
 
     ~ThreadPool()
     {
-        stop = true;
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            stop = true;
+        }
         condition.notify_all();
+        spaceAvailable.notify_all();
         for (std::thread &worker: workers)
         {
             if (worker.joinable())

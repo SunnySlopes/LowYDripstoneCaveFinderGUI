@@ -391,6 +391,7 @@ void findBiggestRiverParallelPool(
     ThreadPool pool(numThreads);
     const int chunkSize = 4096 * 2;
     const int overlap = 256;
+    const int step = chunkSize - overlap;
     std::atomic<int> completedChunks{0};
     int totalChunks = 0;
 
@@ -398,17 +399,33 @@ void findBiggestRiverParallelPool(
     auto startTime = std::chrono::high_resolution_clock::now();
 #endif
 
-    for (int x = 0; x < sx; x += chunkSize - overlap)
+    // Count chunks first so UI can show total/ETA before enqueue finishes
+    for (int x = 0; x < sx; x += step)
     {
-        for (int z = 0; z < sz; z += chunkSize - overlap)
+        for (int z = 0; z < sz; z += step)
         {
+            int currentSx = std::min(chunkSize, sx - x);
+            int currentSz = std::min(chunkSize, sz - z);
+            if (currentSx >= 256 && currentSz >= 256)
+                totalChunks++;
+        }
+    }
+
+    if (progress)
+        progress->total.store(totalChunks);
+
+    for (int x = 0; x < sx; x += step)
+    {
+        for (int z = 0; z < sz; z += step)
+        {
+            if (progress && progress->try_stop.load())
+                return;
+
             int currentSx = std::min(chunkSize, sx - x);
             int currentSz = std::min(chunkSize, sz - z);
 
             if (currentSx >= 256 && currentSz >= 256)
             {
-                totalChunks++;
-
                 pool.enqueue([&, x, z, currentSx, currentSz]() {
                     if (progress)
                     {
@@ -518,9 +535,6 @@ void findBiggestRiverParallelPool(
             }
         }
     }
-
-    if (progress)
-        progress->total.store(totalChunks);
 
 #ifndef RIVER_FINDER_JNI_LIB
     std::cout << "Submitted " << totalChunks << " chunks to thread pool\n";

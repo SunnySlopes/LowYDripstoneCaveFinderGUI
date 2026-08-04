@@ -1,7 +1,9 @@
 #include "sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge.h"
 
 #include <chrono>
+#include <exception>
 #include <mutex>
+#include <new>
 #include <set>
 #include <thread>
 #include <vector>
@@ -59,7 +61,15 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
     progress.phase1.store(1);
 
     int threads = numThreads > 0 ? numThreads : static_cast<int>(std::thread::hardware_concurrency());
-    findBiggestRiverParallelPool(globalResults, &g, startX, startZ, width, height, minArea, &progress, threads);
+    try {
+        findBiggestRiverParallelPool(globalResults, &g, startX, startZ, width, height, minArea, &progress, threads);
+    } catch (const std::bad_alloc &) {
+        resetProgressState();
+        return nullptr;
+    } catch (const std::exception &) {
+        resetProgressState();
+        return nullptr;
+    }
 
     auto res = globalResults.getAllResults();
     if (progress.try_stop.load()) {
