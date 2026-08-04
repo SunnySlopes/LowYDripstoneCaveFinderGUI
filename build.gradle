@@ -73,21 +73,26 @@ tasks.register('buildAllJars') {
 // Prebuilt native libraries: buildMainJar triggers Windows JNI build when possible.
 def generatedNativeResourcesDir = layout.buildDirectory.dir('generated/native-resources')
 def windowsDll = file('native/windows/libDripstoneCaveFinderLibJ.dll')
-def jniBat = file('LowYDSCaveFinder/build-jni.bat')
+def jniBat = file('jni/build-jni.bat')
 
 tasks.register('buildNativeWindows', Exec) {
     group = 'build'
-    description = 'Builds libDripstoneCaveFinderLibJ.dll via LowYDSCaveFinder/build-jni.bat'
-    workingDir = file('LowYDSCaveFinder')
+    description = 'Builds libDripstoneCaveFinderLibJ.dll via jni/build-jni.bat'
+    workingDir = file('jni')
     commandLine 'cmd', '/c', 'build-jni.bat'
     onlyIf {
         System.getProperty('os.name').toLowerCase().contains('windows') && jniBat.exists()
     }
     inputs.files(
-        fileTree('LowYDSCaveFinder') {
-            include 'BiomeSampler.cpp', 'BiomeSampler.h', 'river_finder.cpp', 'SearchConfig.h',
+        fileTree('jni') {
+            include 'BiomeSampler.cpp', 'BiomeSampler.h', 'dripstonecave_finder.cpp', 'SearchConfig.h',
                     'build-jni.bat', 'Thread.h',
-                    'native/jni/**/*.cpp', 'native/jni/**/*.h'
+                    'cxx_compat/*.h',
+                    'native/jni/**/*.cpp', 'native/jni/**/*.h',
+                    'cubiomes/generator.{c,h}', 'cubiomes/layers.{c,h}',
+                    'cubiomes/biomenoise.{c,h}', 'cubiomes/biomes.{c,h}',
+                    'cubiomes/noise.{c,h}', 'cubiomes/util.{c,h}',
+                    'cubiomes/rng.h', 'cubiomes/xrms.h', 'cubiomes/tables/*.h'
         }
     )
     outputs.file(windowsDll)
@@ -111,7 +116,7 @@ tasks.register('prepareNativeResources') {
         if (!windowsDll.exists()) {
             throw new GradleException(
                 'Missing native/windows/libDripstoneCaveFinderLibJ.dll. ' +
-                'Run LowYDSCaveFinder/build-jni.bat (needs sibling Cubitect cubiomes).')
+                'Run jni/build-jni.bat (uses jni/cubiomes).')
         }
 
         copy {

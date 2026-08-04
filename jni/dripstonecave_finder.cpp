@@ -382,7 +382,7 @@ void findBiggestRiverParallelPool(
     std::atomic<int> completedChunks{0};
     int totalChunks = 0;
 
-#ifndef RIVER_FINDER_JNI_LIB
+#ifndef DRIPSTONECAVE_FINDER_JNI_LIB
     auto startTime = std::chrono::high_resolution_clock::now();
 #endif
 
@@ -506,7 +506,7 @@ void findBiggestRiverParallelPool(
                         progress->chunkInRunning.fetch_sub(1);
                     }
 
-#ifndef RIVER_FINDER_JNI_LIB
+#ifndef DRIPSTONECAVE_FINDER_JNI_LIB
                     if (completed % 500 == 0)
                     {
                         auto currentTime = std::chrono::high_resolution_clock::now();
@@ -523,12 +523,12 @@ void findBiggestRiverParallelPool(
         }
     }
 
-#ifndef RIVER_FINDER_JNI_LIB
+#ifndef DRIPSTONECAVE_FINDER_JNI_LIB
     std::cout << "Submitted " << totalChunks << " chunks to thread pool\n";
 #endif
 }
 
-#ifndef RIVER_FINDER_JNI_LIB
+#ifndef DRIPSTONECAVE_FINDER_JNI_LIB
 int main(int argc, char **argv)
 {
     (void) argc;

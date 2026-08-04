@@ -44,15 +44,12 @@ bin/
 .DS_Store
 
 ### Native / C++ build artifacts ###
-LowYDSCaveFinder/build/
-LowYDSCaveFinder/build-mingw/
-LowYDSCaveFinder/native/jni/build/
-LowYDSCaveFinder/*.o
-LowYDSCaveFinder/*.a
-LowYDSCaveFinder/*.exe
-LowYDSCaveFinder/cubiomes_*.c
-# Do not vendor a second cubiomes tree; JNI uses sibling Cubitect cubiomes
-LowYDSCaveFinder/cubiomes_flat/
+jni/build/
+jni/build-mingw/
+jni/native/jni/build/
+jni/*.o
+jni/*.a
+jni/*.exe
 
 ### Prebuilt native libraries (required for Gradle JAR packaging) ###
 native/

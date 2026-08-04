@@ -41,7 +41,7 @@ public final class LowYDripstoneCaveFinderBridge {
             List<String> libNames = getNativeLibNamesForCurrentOs();
             Path[] candidates = {
                 base.resolve("native"),
-                base.resolve("LowYDSCaveFinder").resolve("native").resolve("jni").resolve("build"),
+                base.resolve("jni").resolve("native").resolve("jni").resolve("build"),
                 base.resolve("build").resolve("libs").resolve("native"),
             };
             for (Path dir : candidates) {
@@ -54,7 +54,7 @@ public final class LowYDripstoneCaveFinderBridge {
                     }
                 }
             }
-            throw new UnsatisfiedLinkError("DripstoneCaveFinder native library not found. Build with: LowYDSCaveFinder/build-jni.bat. " + firstError.getMessage());
+            throw new UnsatisfiedLinkError("DripstoneCaveFinder native library not found. Build with: jni/build-jni.bat. " + firstError.getMessage());
         }
     }
 

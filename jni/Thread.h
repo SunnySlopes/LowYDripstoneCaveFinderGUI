@@ -51,7 +51,7 @@ public:
     {
         std::lock_guard<std::mutex> lock(mutex_);
         std::ranges::sort(results_, std::greater<T>());
-#ifndef RIVER_FINDER_JNI_LIB
+#ifndef DRIPSTONECAVE_FINDER_JNI_LIB
         std::cout << "addResults: " << results_.size() << "\n";
 #endif
         return results_;
@@ -138,7 +138,7 @@ public:
                 worker.join();
             }
         }
-#ifndef RIVER_FINDER_JNI_LIB
+#ifndef DRIPSTONECAVE_FINDER_JNI_LIB
         std::cout << "ThreadPool destroyed" << std::endl;
 #endif
     }

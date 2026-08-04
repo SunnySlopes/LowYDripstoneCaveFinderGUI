@@ -76,7 +76,7 @@ This project uses **prebuilt native libraries only** (no CMake in Gradle).
 
 本项目**仅使用预编译 native 库**（Gradle 不触发 CMake 编译）。
 
-1. Build `libDripstoneCaveFinderLibJ.dll` in LowYDripstoneCaveFinder native submodule (e.g. `build-jni.bat`).
+1. Build `libDripstoneCaveFinderLibJ.dll` in the `jni/` native tree (e.g. `jni/build-jni.bat`).
 2. Copy the DLL to `native/windows/libDripstoneCaveFinderLibJ.dll`.
 3. Build the JAR:
 
@@ -99,19 +99,19 @@ Or use `run.bat`.
 ## Core Libraries / 核心依赖
 
 - [RiverFinder (melationin)](https://github.com/melationin/riverfinder) - Reference implementation
-- [cubiomes](https://github.com/xpple/cubiomes) - Biome and terrain generation support
+- [cubiomes (xpple)](https://github.com/xpple/cubiomes) - via `jni/cubiomes` submodule (C sources)
 
 - [RiverFinder (melationin)](https://github.com/melationin/riverfinder) - 参考实现
-- [cubiomes](https://github.com/xpple/cubiomes) - 群系与地形生成支持
+- [cubiomes (xpple)](https://github.com/xpple/cubiomes) - 通过 `jni/cubiomes` 子模块引入（C 源码）
 
 ## Notes / 注意事项
 
 - Use a thread count that matches your CPU capability for best stability.
 - Native libraries (`dll`/`so`) are packaged in the jar and extracted to a temporary directory at runtime.
-- To update the native library, rebuild in `LowYDSCaveFinder/` submodule and overwrite `native/windows/libDripstoneCaveFinderLibJ.dll`.
+- To update the native library, rebuild in `jni/` and overwrite `native/windows/libDripstoneCaveFinderLibJ.dll`.
 - 建议根据 CPU 性能设置线程数以获得更稳定的体验。
 - 原生库（`dll`/`so`）已打包进 jar，运行时会自动解压到临时目录加载。
-- 更新 native 库时，在 `LowYDSCaveFinder/` 子模块重新编译并覆盖 `native/windows/libDripstoneCaveFinderLibJ.dll`。
+- 更新 native 库时，在 `jni/` 重新编译并覆盖 `native/windows/libDripstoneCaveFinderLibJ.dll`。
 
 ---
 

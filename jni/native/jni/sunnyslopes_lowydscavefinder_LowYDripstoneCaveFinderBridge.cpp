@@ -8,7 +8,7 @@
 #include <thread>
 #include <vector>
 
-#include "../../river_finder.cpp"
+#include "../../dripstonecave_finder.cpp"
 
 static std::mutex searchMutex;
 static std::vector<Res> dedup(const std::vector<Res> &v)
