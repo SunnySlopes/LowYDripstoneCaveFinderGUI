@@ -11,8 +11,8 @@ enum class Phase1CoarseFilter {
     WeirdThenCont = 3,
 };
 
-/** Phase1a 默认粗滤：C partial → Weirdness（AND）。 */
-constexpr Phase1CoarseFilter PHASE1_COARSE_FILTER = Phase1CoarseFilter::ContThenWeird;
+/** Phase1a 粗滤：大陆性已由 CONT 预筛覆盖，掩膜内只采 Weirdness。 */
+constexpr Phase1CoarseFilter PHASE1_COARSE_FILTER = Phase1CoarseFilter::WeirdnessOnly;
 
 /**
  * Phase1 预筛：先按此步长采大陆性，超过 CONT_PREFILTER_THRESHOLD 的 tile

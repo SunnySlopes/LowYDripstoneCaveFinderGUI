@@ -218,14 +218,32 @@ std::vector<Res> findBiggestRiver(
 
     const int stride = W + 1;
     std::vector<int> rawRiver((size_t) W * H, 0);
-    std::vector<int> rawCave((size_t) W * H, 0);
     std::vector<int> prefixRiver((size_t) (W + 1) * (H + 1), 0);
-    std::vector<int> prefixCave((size_t) (W + 1) * (H + 1), 0);
+
+    // Cave grids only needed for precise (scale==1) path.
+    std::vector<int> rawCave;
+    std::vector<int> prefixCave;
+    if constexpr (scale == 1)
+    {
+        rawCave.assign((size_t) W * H, 0);
+        prefixCave.assign((size_t) (W + 1) * (H + 1), 0);
+    }
 
 #define RAWR(x,z) rawRiver[(size_t)(x) + (size_t)(z) * W]
 #define RAWC(x,z) rawCave[(size_t)(x) + (size_t)(z) * W]
 #define ARRR(x,z) prefixRiver[(size_t)(x) + (size_t)(z) * stride]
 #define ARRC(x,z) prefixCave[(size_t)(x) + (size_t)(z) * stride]
+
+    const int R_out = 128 / scale;
+    const int occTile = std::max(8, R_out);
+    const int oW = (W + occTile - 1) / occTile;
+    const int oH = (H + occTile - 1) / occTile;
+    std::vector<uint8_t> occ((size_t) std::max(0, oW) * std::max(0, oH), 0);
+
+    auto markOcc = [&](int x, int z) {
+        if (oW <= 0 || oH <= 0) return;
+        occ[(size_t) (z / occTile) * oW + (size_t) (x / occTile)] = 1;
+    };
 
     if constexpr (scale > 1)
     {
@@ -242,12 +260,23 @@ std::vector<Res> findBiggestRiver(
                     RAWR(x, z) = 0;
                     continue;
                 }
-                RAWR(x, z) = coarseCellValue(g, worldX, worldZ, mode);
+                const int v = coarseCellValue(g, worldX, worldZ, mode);
+                RAWR(x, z) = v;
+                if (v)
+                    markOcc(x, z);
             }
         }
     } else
     {
         fillPreciseGrid(g, startX, startZ, W, H, rawRiver, rawCave);
+        for (int z = 0; z < H; z++)
+        {
+            for (int x = 0; x < W; x++)
+            {
+                if (RAWR(x, z) || RAWC(x, z))
+                    markOcc(x, z);
+            }
+        }
     }
 
     for (int z = 1; z <= H; z++)
@@ -255,9 +284,30 @@ std::vector<Res> findBiggestRiver(
         for (int x = 1; x <= W; x++)
         {
             ARRR(x, z) = RAWR(x - 1, z - 1) + ARRR(x - 1, z) + ARRR(x, z - 1) - ARRR(x - 1, z - 1);
-            ARRC(x, z) = RAWC(x - 1, z - 1) + ARRC(x - 1, z) + ARRC(x, z - 1) - ARRC(x - 1, z - 1);
+            if constexpr (scale == 1)
+            {
+                ARRC(x, z) = RAWC(x - 1, z - 1) + ARRC(x - 1, z) + ARRC(x, z - 1) - ARRC(x - 1, z - 1);
+            }
         }
     }
+
+    auto occAnyInRect = [&](int x0, int x1, int z0, int z1) -> bool {
+        if (oW <= 0 || oH <= 0) return true;
+        const int tx0 = std::max(0, x0 / occTile);
+        const int tx1 = std::min(oW - 1, x1 / occTile);
+        const int tz0 = std::max(0, z0 / occTile);
+        const int tz1 = std::min(oH - 1, z1 / occTile);
+        if (tx0 > tx1 || tz0 > tz1) return false;
+        for (int tz = tz0; tz <= tz1; tz++)
+        {
+            for (int tx = tx0; tx <= tx1; tx++)
+            {
+                if (occ[(size_t) tz * oW + (size_t) tx])
+                    return true;
+            }
+        }
+        return false;
+    };
 
     struct CandidateArea {
         int area;
@@ -276,7 +326,6 @@ std::vector<Res> findBiggestRiver(
 
     std::priority_queue<CandidateArea> pq;
     const auto &ring = getRingMask<scale>();
-    const int R_out = ring.R_out;
 
     auto ringSum = [&](const std::vector<int> &pref, int cx, int cz) -> int {
         int area = 0;
@@ -314,6 +363,10 @@ std::vector<Res> findBiggestRiver(
     {
         for (int cx = R_out; cx < W - R_out; cx++)
         {
+            // Skip ring centers whose bounding box has no positive cells
+            if (!occAnyInRect(cx - R_out, cx + R_out, cz - R_out, cz + R_out))
+                continue;
+
             int worldTotal;
             int worldCave;
             int worldRiver;
@@ -377,8 +430,11 @@ void findBiggestRiverParallelPool(
 {
     ThreadPool pool(numThreads);
     const int chunkSize = 4096 * 2;
-    const int overlap = 256;
+    const int tile = SearchConfig::CANDIDATE_TILE_BLOCKS;
+    const int overlap = tile;
     const int step = chunkSize - overlap;
+    const int subR = SearchConfig::SUBSEARCH_RADIUS_BLOCKS;
+    const int subSz = SearchConfig::SUBSEARCH_SIZE_BLOCKS;
     std::atomic<int> completedChunks{0};
     int totalChunks = 0;
 
@@ -393,13 +449,15 @@ void findBiggestRiverParallelPool(
         {
             int currentSx = std::min(chunkSize, sx - x);
             int currentSz = std::min(chunkSize, sz - z);
-            if (currentSx >= 256 && currentSz >= 256)
+            if (currentSx >= tile && currentSz >= tile)
                 totalChunks++;
         }
     }
 
     if (progress)
         progress->total.store(totalChunks);
+
+    const uint64_t seedVal = g->seed;
 
     for (int x = 0; x < sx; x += step)
     {
@@ -411,9 +469,9 @@ void findBiggestRiverParallelPool(
             int currentSx = std::min(chunkSize, sx - x);
             int currentSz = std::min(chunkSize, sz - z);
 
-            if (currentSx >= 256 && currentSz >= 256)
+            if (currentSx >= tile && currentSz >= tile)
             {
-                pool.enqueue([&, x, z, currentSx, currentSz]() {
+                pool.enqueue([&, x, z, currentSx, currentSz, seedVal]() {
                     if (progress)
                     {
                         if (progress->try_stop.load()) return;
@@ -425,28 +483,71 @@ void findBiggestRiverParallelPool(
                         progress->chunkInRunning.fetch_add(1);
                     }
 
-                    Generator localG = *g;
+                    // Per-worker Generator: setup once, re-seed when seed changes.
+                    thread_local Generator tlsG;
+                    thread_local bool tlsInited = false;
+                    thread_local uint64_t tlsSeed = ~0ull;
+                    if (!tlsInited)
+                    {
+                        setupGenerator(&tlsG, MC_1_21_3, FORCE_OCEAN_VARIANTS);
+                        tlsInited = true;
+                    }
+                    if (tlsSeed != seedVal)
+                    {
+                        applySeed(&tlsG, DIM_OVERWORLD, seedVal);
+                        tlsSeed = seedVal;
+                    }
+
                     const int csx = startX + x;
                     const int csz = startZ + z;
 
                     const auto contMask = buildDilatedContPrefilterMask(
-                        &localG, csx, csz, currentSx, currentSz,
+                        &tlsG, csx, csz, currentSx, currentSz,
                         SearchConfig::PHASE1_CONT_PREFILTER_SCALE,
                         SearchConfig::PHASE1_CONT_PREFILTER_THRESHOLD,
                         SearchConfig::PHASE1_CONT_PREFILTER_DILATE);
 
+                    auto finishChunk = [&]() {
+                        int completed = completedChunks.fetch_add(1) + 1;
+                        if (progress)
+                        {
+                            progress->current.store(completed);
+                            progress->chunkInRunning.fetch_sub(1);
+                        }
+#ifndef DRIPSTONECAVE_FINDER_JNI_LIB
+                        if (completed % 500 == 0)
+                        {
+                            auto currentTime = std::chrono::high_resolution_clock::now();
+                            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                currentTime - startTime).count();
+                            double speed = static_cast<double>(completed) / elapsed * 1000;
+                            std::cout << "Progress: " << completed << "/" << totalChunks
+                                    << " (" << int(completed * 100.0 / totalChunks)
+                                    << "%) - " << speed << " chunks/sec\n";
+                        }
+#endif
+                    };
+
+                    // Empty Cont mask: no Phase1 work in this chunk.
+                    if (std::none_of(contMask.begin(), contMask.end(),
+                                     [](uint8_t v) { return v != 0; }))
+                    {
+                        finishChunk();
+                        return;
+                    }
+
                     auto blockResultsX16 = findBiggestRiver<SearchConfig::PHASE1_WEIRDNESS_GRID_SCALE>(
-                        &localG, csx, csz, currentSx, currentSz,
+                        &tlsG, csx, csz, currentSx, currentSz,
                         minArea, 0.8, phase1CoarseToFilter(SearchConfig::PHASE1_COARSE_FILTER),
                         0.7f, &contMask, SearchConfig::PHASE1_CONT_PREFILTER_SCALE);
 
-                    const int bx = currentSx / 256 + 2;
-                    const int bz = currentSz / 256 + 2;
+                    const int bx = currentSx / tile + 2;
+                    const int bz = currentSz / tile + 2;
                     std::vector<Res> flags((size_t) bx * bz);
                     for (const auto &it: blockResultsX16)
                     {
-                        int x2 = (it.point.x - csx) / 256;
-                        int z2 = (it.point.y - csz) / 256;
+                        int x2 = (it.point.x - csx) / tile;
+                        int z2 = (it.point.y - csz) / tile;
                         if (x2 >= 0 && x2 < bx && z2 >= 0 && z2 < bz)
                         {
                             auto &itf = flags[(size_t) x2 + (size_t) bx * z2];
@@ -463,10 +564,10 @@ void findBiggestRiverParallelPool(
                     int max = 0;
                     for (auto &res: pqX16)
                     {
-                        auto subResults = findBiggestRiver<4>(
-                            &localG,
-                            res.point.x - 256, res.point.y - 256,
-                            512, 512,
+                        auto subResults = findBiggestRiver<SearchConfig::PHASE1_CLIMATE_GRID_SCALE>(
+                            &tlsG,
+                            res.point.x - subR, res.point.y - subR,
+                            subSz, subSz,
                             minArea, 1.0, FilterMode::ClimateCoarse);
 
                         if (subResults.empty()) break;
@@ -499,25 +600,7 @@ void findBiggestRiverParallelPool(
                     if (!filteredResults.empty())
                         globalResults.addResults(filteredResults);
 
-                    int completed = completedChunks.fetch_add(1) + 1;
-                    if (progress)
-                    {
-                        progress->current.store(completed);
-                        progress->chunkInRunning.fetch_sub(1);
-                    }
-
-#ifndef DRIPSTONECAVE_FINDER_JNI_LIB
-                    if (completed % 500 == 0)
-                    {
-                        auto currentTime = std::chrono::high_resolution_clock::now();
-                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            currentTime - startTime).count();
-                        double speed = static_cast<double>(completed) / elapsed * 1000;
-                        std::cout << "Progress: " << completed << "/" << totalChunks
-                                << " (" << int(completed * 100.0 / totalChunks)
-                                << "%) - " << speed << " chunks/sec\n";
-                    }
-#endif
+                    finishChunk();
                 });
             }
         }
@@ -566,7 +649,10 @@ int main(int argc, char **argv)
     for (const auto &it: res)
     {
         auto temp = findBiggestRiver<1>(
-            &g, it.point.x - 160, it.point.y - 160, 320, 320,
+            &g,
+            it.point.x - SearchConfig::REFINE_HALF_WINDOW,
+            it.point.y - SearchConfig::REFINE_HALF_WINDOW,
+            SearchConfig::REFINE_WINDOW_BLOCKS, SearchConfig::REFINE_WINDOW_BLOCKS,
             1, 1.0, FilterMode::PreciseBiome);
         if (!temp.empty() && temp[0].area > max * 0.90)
         {

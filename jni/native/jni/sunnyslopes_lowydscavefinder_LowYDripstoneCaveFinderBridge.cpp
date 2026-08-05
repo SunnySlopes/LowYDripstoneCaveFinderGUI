@@ -136,7 +136,10 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
                     }
 
                     auto temp = findBiggestRiver<1>(
-                        &tlsG, cand.point.x - 160, cand.point.y - 160, 320, 320,
+                        &tlsG,
+                        cand.point.x - SearchConfig::REFINE_HALF_WINDOW,
+                        cand.point.y - SearchConfig::REFINE_HALF_WINDOW,
+                        SearchConfig::REFINE_WINDOW_BLOCKS, SearchConfig::REFINE_WINDOW_BLOCKS,
                         minArea, 1.0, FilterMode::PreciseBiome, riverWeight);
 
                     if (!temp.empty() && temp[0].area >= minArea)
