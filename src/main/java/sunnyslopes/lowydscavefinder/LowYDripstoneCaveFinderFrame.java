@@ -1675,29 +1675,25 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 return;
             }
             if (!isSearchRunning) return;
-            if (info.refiningResults()) {
-                searchProgressBar.setIndeterminate(true);
-                searchProgressBar.setString(getString("progress.consolidating"));
-                if (isSearchPaused) {
-                    searchElapsedTimeLabel.setText(getString("elapsedTime", formatTime(info.elapsedMs())));
-                    searchRemainingTimeLabel.setText(getString("remainingTime.paused"));
-                } else {
-                    searchElapsedTimeLabel.setText(getString("elapsedTime", formatTime(info.elapsedMs())));
-                    searchRemainingTimeLabel.setText(getString("remainingTime.calculating"));
-                }
-                return;
-            }
+
             searchProgressBar.setIndeterminate(false);
             int progress = (int) Math.min(100, info.percentage());
             searchProgressBar.setValue(progress);
-            searchProgressBar.setString(getString("progress.format", info.processed(), info.total(), info.percentage()));
+            String stageKey = (info.phase() == 2 || info.phase() == -1) ? "progress.stage2" : "progress.stage1";
+            searchProgressBar.setString(getString(stageKey, info.processed(), info.total(), info.percentage()));
+
+            searchElapsedTimeLabel.setText(getString("elapsedTime", formatTime(info.elapsedMs())));
             if (isSearchPaused) {
-                searchElapsedTimeLabel.setText(getString("elapsedTime", formatTime(info.elapsedMs())));
                 searchRemainingTimeLabel.setText(getString("remainingTime.paused"));
                 return;
             }
-            searchElapsedTimeLabel.setText(getString("elapsedTime", formatTime(info.elapsedMs())));
-            searchRemainingTimeLabel.setText(info.remainingMs() > 0 ? getString("remainingTime", formatTime(info.remainingMs())) : getString("remainingTime.calculating"));
+            if (info.phase() == -1) {
+                searchRemainingTimeLabel.setText(getString("remainingTime.calculating"));
+                return;
+            }
+            searchRemainingTimeLabel.setText(info.remainingMs() > 0
+                    ? getString("remainingTime", formatTime(info.remainingMs()))
+                    : getString("remainingTime.calculating"));
         });
     }
 
@@ -2585,31 +2581,21 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                         if (isListSearchPaused && info.nativePauseSettled()) {
                             return;
                         }
-                        if (info.refiningResults()) {
-                            lastProgressUpdate[0] = System.currentTimeMillis();
-                            SwingUtilities.invokeLater(() -> {
-                                if (listResultToken != listSearchResultToken.get()) {
-                                    return;
-                                }
-                                if (isListSearchRunning) {
-                                    listSearchCurrentSeedProgressLabel.setText(getString("progress.consolidating"));
-                                }
-                            });
-                            return;
-                        }
                         long now = System.currentTimeMillis();
                         if (now - lastProgressUpdate[0] < PROGRESS_INTERVAL_MS) return;
                         lastProgressUpdate[0] = now;
                         final long proc = info.processed();
                         final long tot = info.total();
                         final double pct = tot > 0 ? Math.min(100.0, proc * 100.0 / tot) : 0;
+                        final int phase = info.phase();
                         SwingUtilities.invokeLater(() -> {
                             if (listResultToken != listSearchResultToken.get()) {
                                 return;
                             }
                             if (isListSearchRunning) {
+                                String key = (phase == 2 || phase == -1) ? "currentSeed.stage2" : "currentSeed.stage1";
                                 listSearchCurrentSeedProgressLabel.setText(
-                                        getString("currentSeed", currentSeedIndex, totalSeeds, proc, tot, pct));
+                                        getString(key, currentSeedIndex, totalSeeds, proc, tot, pct));
                             }
                         });
                     };

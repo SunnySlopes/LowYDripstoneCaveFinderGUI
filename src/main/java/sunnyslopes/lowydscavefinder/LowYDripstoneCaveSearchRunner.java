@@ -8,7 +8,6 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
@@ -80,7 +79,7 @@ public class LowYDripstoneCaveSearchRunner {
             return of(phase, processed, total, elapsedMs, remainingMs, false, false, false);
         }
 
-        /** @param refiningResults native phase 2 (post-scan refinement); UI may show non-numeric message. */
+        /** @param refiningResults native phase 2 (post-scan refinement). */
         public static ProgressInfo of(int phase, long processed, long total, long elapsedMs, long remainingMs,
                                       boolean refiningResults) {
             return of(phase, processed, total, elapsedMs, remainingMs, refiningResults, false, false);
@@ -259,9 +258,10 @@ public class LowYDripstoneCaveSearchRunner {
         int width = (maxX - minX + 1) + 2 * RING_OUTER;
         int height = (maxZ - minZ + 1) + 2 * RING_OUTER;
 
-        AtomicInteger phase1TotalMax = new AtomicInteger(0);
         AtomicLong lastProcessed = new AtomicLong(0);
         AtomicLong lastTotal = new AtomicLong(0);
+        /** Elapsed ms at the moment phase 2 was first observed (for per-phase ETA). */
+        AtomicLong phase2StartElapsedMs = new AtomicLong(-1L);
 
         ScheduledExecutorService progressScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "lowydripstonecavefinder-progress");
@@ -288,28 +288,31 @@ public class LowYDripstoneCaveSearchRunner {
                 long processed;
                 long total;
                 boolean refining;
+                long phaseElapsedForEta;
+                long elapsed = getElapsedMs();
                 if (nPhase == 1) {
                     if (tot <= 1) {
                         return;
                     }
-                    phase1TotalMax.set(Math.max(phase1TotalMax.get(), tot));
                     processed = cur;
                     total = tot;
                     refining = false;
+                    phaseElapsedForEta = elapsed;
                 } else if (nPhase == 2) {
-                    int p1 = phase1TotalMax.get();
-                    if (p1 <= 0) {
-                        processed = cur;
-                        total = Math.max(tot, 1L);
-                    } else {
-                        processed = (long) p1 + cur;
-                        total = (long) p1 + Math.max(tot, 1);
+                    if (tot <= 0) {
+                        return;
                     }
+                    phase2StartElapsedMs.compareAndSet(-1L, elapsed);
+                    long p2Start = phase2StartElapsedMs.get();
+                    processed = cur;
+                    total = Math.max(tot, 1L);
                     refining = true;
+                    phaseElapsedForEta = Math.max(0L, elapsed - Math.max(0L, p2Start));
                 } else if (nPhase == -1) {
                     processed = lastProcessed.get();
                     total = Math.max(Math.max(lastTotal.get(), processed), 1L);
                     refining = true;
+                    phaseElapsedForEta = 0L;
                 } else {
                     return;
                 }
@@ -317,16 +320,16 @@ public class LowYDripstoneCaveSearchRunner {
                 lastProcessed.set(processed);
                 lastTotal.set(total);
 
-                long elapsed = getElapsedMs();
                 long remaining = 0L;
-                if (!isPaused && !refining && total > processed && processed > 0) {
-                    // Use double to avoid long overflow on huge full-world totals
-                    double eta = elapsed * ((double) (total - processed) / (double) processed);
+                if (!isPaused && nPhase != -1 && total > processed && processed > 0 && phaseElapsedForEta > 0) {
+                    // Per-phase ETA; use double to avoid long overflow on huge totals
+                    double eta = phaseElapsedForEta * ((double) (total - processed) / (double) processed);
                     if (eta > 0 && eta < (double) Long.MAX_VALUE) {
                         remaining = (long) eta;
                     }
                 }
-                progressCallback.accept(ProgressInfo.of(0, processed, total, elapsed, remaining, refining, pauseSettled, tryStop));
+                progressCallback.accept(ProgressInfo.of(nPhase, processed, total, elapsed, remaining,
+                    refining, pauseSettled, tryStop));
             } catch (Throwable ignored) {
             }
         }, PROGRESS_POLL_MS, PROGRESS_POLL_MS, TimeUnit.MILLISECONDS);
