@@ -37,12 +37,14 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
     private static final double RIVER_AREA_FULL = Math.PI * (128 * 128 - 24 * 24);
     /**
-     * 河流群系面积下限：全域总面积的 40%；上限 95%，占比同范围
+     * 加权总面积下限：快速模式 60%，精确模式 40%；上限 95%，占比同范围
      */
-    private static final int MIN_RIVER_AREA_UI = (int) (RIVER_AREA_FULL * 0.40);
+    private static final int MIN_RIVER_AREA_UI_FAST = (int) (RIVER_AREA_FULL * 0.60);
+    private static final int MIN_RIVER_AREA_UI_PRECISE = (int) (RIVER_AREA_FULL * 0.40);
     private static final int DEFAULT_RIVER_AREA_UI = (int) (RIVER_AREA_FULL * 0.70);
     private static final int MAX_RIVER_AREA_UI = (int) (RIVER_AREA_FULL * 0.95);
-    private static final double MIN_RIVER_RATIO_UI = MIN_RIVER_AREA_UI / RIVER_AREA_FULL * 100.0;
+    private static final double MIN_RIVER_RATIO_UI_FAST = MIN_RIVER_AREA_UI_FAST / RIVER_AREA_FULL * 100.0;
+    private static final double MIN_RIVER_RATIO_UI_PRECISE = MIN_RIVER_AREA_UI_PRECISE / RIVER_AREA_FULL * 100.0;
     private static final double DEFAULT_RIVER_RATIO_UI = DEFAULT_RIVER_AREA_UI / RIVER_AREA_FULL * 100.0;
     private static final double MAX_RIVER_RATIO_UI = MAX_RIVER_AREA_UI / RIVER_AREA_FULL * 100.0;
     private static final float DEFAULT_RIVER_WEIGHT_UI = 0.70f;
@@ -53,6 +55,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JLabel searchMinRiverAreaLabel;
     private JLabel searchMinRiverRatioLabel;
     private JLabel searchRiverWeightLabel;
+    private JCheckBox searchFastModeCheckBox;
     private JLabel searchMinXLabel;
     private JLabel searchMaxXLabel;
     private JLabel searchMinZLabel;
@@ -112,6 +115,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JLabel listSearchMinRiverAreaLabel;
     private JLabel listSearchMinRiverRatioLabel;
     private JLabel listSearchRiverWeightLabel;
+    private JCheckBox listFastModeCheckBox;
     private JLabel listSearchMinXLabel;
     private JLabel listSearchMaxXLabel;
     private JLabel listSearchMinZLabel;
@@ -207,8 +211,40 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         StringBuilder sb = new StringBuilder();
         sb.append(getString("hint.samplingY")).append("<br>");
         sb.append(getString("hint.minRiverRatioRange")).append("<br>");
+        sb.append(getString("hint.fastModeNote")).append("<br>");
         sb.append(getString("hint.outputHint"));
         return sb.toString();
+    }
+
+    private boolean isSearchFastMode() {
+        return searchFastModeCheckBox == null || searchFastModeCheckBox.isSelected();
+    }
+
+    private boolean isListFastMode() {
+        return listFastModeCheckBox == null || listFastModeCheckBox.isSelected();
+    }
+
+    private int minRiverAreaUi(boolean fastMode) {
+        return fastMode ? MIN_RIVER_AREA_UI_FAST : MIN_RIVER_AREA_UI_PRECISE;
+    }
+
+    private double minRiverRatioUi(boolean fastMode) {
+        return fastMode ? MIN_RIVER_RATIO_UI_FAST : MIN_RIVER_RATIO_UI_PRECISE;
+    }
+
+    /** 切换快速模式时：若下限升高则抬升当前面积/占比，并刷新说明文案 */
+    private void onFastModeToggled(boolean searchTab) {
+        if (searchTab) {
+            syncSearchRatioFromArea();
+            if (searchCreditLabel != null) {
+                searchCreditLabel.setText(buildCreditText());
+            }
+        } else {
+            syncListRatioFromArea();
+            if (listSearchCreditLabel != null) {
+                listSearchCreditLabel.setText(buildCreditText());
+            }
+        }
     }
 
     /**
@@ -463,9 +499,21 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         applyBoundFieldEnableState(true);
         applySquareSideToBounds();
 
-        // 语言选择下拉框
+        // 快速模式（语言选项上方）
         gbc.gridx = 0;
         gbc.gridy = 10;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        searchFastModeCheckBox = new JCheckBox(getString("label.fastMode"), true);
+        searchFastModeCheckBox.setFont(getLoadedFont());
+        searchFastModeCheckBox.addActionListener(e -> onFastModeToggled(true));
+        inputPanel.add(searchFastModeCheckBox, gbc);
+        gbc.gridwidth = 1;
+
+        // 语言选择下拉框
+        gbc.gridx = 0;
+        gbc.gridy = 11;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         searchLanguageLabel = new JLabel(getString("label.language"));
@@ -677,7 +725,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 return;
             }
             long seed = Long.parseLong(seedText);
-            int minArea = parseMinRiverArea(searchMinRiverAreaField);
+            int minArea = parseMinRiverArea(searchMinRiverAreaField, isSearchFastMode());
             if (minArea < 0) minArea = 0;
             int minX = Integer.parseInt(minXField.getText().trim());
             int maxX = Integer.parseInt(maxXField.getText().trim());
@@ -705,6 +753,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 searchMinRiverAreaField.setEnabled(true);
                 searchMinRiverRatioField.setEnabled(true);
                 searchRiverWeightField.setEnabled(true);
+                if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(true);
                 applyBoundFieldEnableState(true);
                 if (languageComboBox != null) {
                     languageComboBox.setEnabled(true);
@@ -740,16 +789,18 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     }
 
     /**
-     * 单种子 Tab：根据面积同步占比（仅 Tab 内联动），面积限制在 [MIN_RIVER_AREA_UI, MAX_RIVER_AREA_UI]
+     * 单种子 Tab：根据面积同步占比（仅 Tab 内联动），面积限制在当前模式允许的下限～95%
      */
     private void syncSearchRatioFromArea() {
         if (searchRiverParamUpdating || searchMinRiverAreaField == null || searchMinRiverRatioField == null) return;
         try {
+            int minArea = minRiverAreaUi(isSearchFastMode());
+            double minRatio = minRiverRatioUi(isSearchFastMode());
             int area = Integer.parseInt(searchMinRiverAreaField.getText().trim());
-            area = Math.max(MIN_RIVER_AREA_UI, Math.min(MAX_RIVER_AREA_UI, area));
+            area = Math.max(minArea, Math.min(MAX_RIVER_AREA_UI, area));
             searchRiverParamUpdating = true;
             double ratio = RIVER_AREA_FULL > 0 ? (area / RIVER_AREA_FULL * 100.0) : 0;
-            ratio = Math.max(MIN_RIVER_RATIO_UI, Math.min(MAX_RIVER_RATIO_UI, ratio));
+            ratio = Math.max(minRatio, Math.min(MAX_RIVER_RATIO_UI, ratio));
             searchMinRiverRatioField.setText(String.format("%.2f", ratio));
             searchMinRiverAreaField.setText(String.valueOf(area));
         } catch (NumberFormatException ignored) {
@@ -759,16 +810,18 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     }
 
     /**
-     * 单种子 Tab：根据占比同步面积（仅 Tab 内联动），占比限制在 [MIN_RIVER_RATIO_UI, MAX_RIVER_RATIO_UI]
+     * 单种子 Tab：根据占比同步面积（仅 Tab 内联动）
      */
     private void syncSearchAreaFromRatio() {
         if (searchRiverParamUpdating || searchMinRiverAreaField == null || searchMinRiverRatioField == null) return;
         try {
+            int minArea = minRiverAreaUi(isSearchFastMode());
+            double minRatio = minRiverRatioUi(isSearchFastMode());
             double ratio = Double.parseDouble(searchMinRiverRatioField.getText().trim());
-            ratio = Math.max(MIN_RIVER_RATIO_UI, Math.min(MAX_RIVER_RATIO_UI, ratio));
+            ratio = Math.max(minRatio, Math.min(MAX_RIVER_RATIO_UI, ratio));
             searchRiverParamUpdating = true;
             int area = (int) Math.round(RIVER_AREA_FULL * ratio / 100.0);
-            area = Math.max(MIN_RIVER_AREA_UI, Math.min(MAX_RIVER_AREA_UI, area));
+            area = Math.max(minArea, Math.min(MAX_RIVER_AREA_UI, area));
             searchMinRiverAreaField.setText(String.valueOf(area));
             searchMinRiverRatioField.setText(String.format("%.2f", ratio));
         } catch (NumberFormatException ignored) {
@@ -778,16 +831,18 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     }
 
     /**
-     * 列表 Tab：根据面积同步占比，面积限制在 [MIN_RIVER_AREA_UI, MAX_RIVER_AREA_UI]
+     * 列表 Tab：根据面积同步占比
      */
     private void syncListRatioFromArea() {
         if (listRiverParamUpdating || listMinRiverAreaField == null || listMinRiverRatioField == null) return;
         try {
+            int minArea = minRiverAreaUi(isListFastMode());
+            double minRatio = minRiverRatioUi(isListFastMode());
             int area = Integer.parseInt(listMinRiverAreaField.getText().trim());
-            area = Math.max(MIN_RIVER_AREA_UI, Math.min(MAX_RIVER_AREA_UI, area));
+            area = Math.max(minArea, Math.min(MAX_RIVER_AREA_UI, area));
             listRiverParamUpdating = true;
             double ratio = RIVER_AREA_FULL > 0 ? (area / RIVER_AREA_FULL * 100.0) : 0;
-            ratio = Math.max(MIN_RIVER_RATIO_UI, Math.min(MAX_RIVER_RATIO_UI, ratio));
+            ratio = Math.max(minRatio, Math.min(MAX_RIVER_RATIO_UI, ratio));
             listMinRiverRatioField.setText(String.format("%.2f", ratio));
             listMinRiverAreaField.setText(String.valueOf(area));
         } catch (NumberFormatException ignored) {
@@ -797,16 +852,18 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     }
 
     /**
-     * 列表 Tab：根据占比同步面积，占比限制在 [MIN_RIVER_RATIO_UI, MAX_RIVER_RATIO_UI]
+     * 列表 Tab：根据占比同步面积
      */
     private void syncListAreaFromRatio() {
         if (listRiverParamUpdating || listMinRiverAreaField == null || listMinRiverRatioField == null) return;
         try {
+            int minArea = minRiverAreaUi(isListFastMode());
+            double minRatio = minRiverRatioUi(isListFastMode());
             double ratio = Double.parseDouble(listMinRiverRatioField.getText().trim());
-            ratio = Math.max(MIN_RIVER_RATIO_UI, Math.min(MAX_RIVER_RATIO_UI, ratio));
+            ratio = Math.max(minRatio, Math.min(MAX_RIVER_RATIO_UI, ratio));
             listRiverParamUpdating = true;
             int area = (int) Math.round(RIVER_AREA_FULL * ratio / 100.0);
-            area = Math.max(MIN_RIVER_AREA_UI, Math.min(MAX_RIVER_AREA_UI, area));
+            area = Math.max(minArea, Math.min(MAX_RIVER_AREA_UI, area));
             listMinRiverAreaField.setText(String.valueOf(area));
             listMinRiverRatioField.setText(String.format("%.2f", ratio));
         } catch (NumberFormatException ignored) {
@@ -816,13 +873,14 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     }
 
     /**
-     * 解析最低河流面积，无效返回 -1；有效范围为 [MIN_RIVER_AREA_UI, MAX_RIVER_AREA_UI]
+     * 解析最低加权总面积，无效返回 -1；有效范围取决于当前 Tab 的快速模式
      */
-    private int parseMinRiverArea(JTextField field) {
+    private int parseMinRiverArea(JTextField field, boolean fastMode) {
         if (field == null) return -1;
         try {
             int a = Integer.parseInt(field.getText().trim());
-            return a >= MIN_RIVER_AREA_UI && a <= MAX_RIVER_AREA_UI ? a : -1;
+            int minArea = minRiverAreaUi(fastMode);
+            return a >= minArea && a <= MAX_RIVER_AREA_UI ? a : -1;
         } catch (NumberFormatException e) {
             return -1;
         }
@@ -974,7 +1032,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 }
             }
 
-            int minArea = parseMinRiverArea(searchMinRiverAreaField);
+            boolean fastMode = isSearchFastMode();
+            int minArea = parseMinRiverArea(searchMinRiverAreaField, fastMode);
             if (minArea < 0) {
                 JOptionPane.showMessageDialog(this, getString("error.minRiverAreaInvalid"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
                 return;
@@ -1070,10 +1129,13 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             int searchMaxX = maxX + LowYDripstoneCaveSearchRunner.RING_OUTER;
             int searchMinZ = minZ - LowYDripstoneCaveSearchRunner.RING_OUTER;
             int searchMaxZ = maxZ + LowYDripstoneCaveSearchRunner.RING_OUTER;
-            int baseX1 = (searchMinX / LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP) * LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP;
-            int baseZ1 = (searchMinZ / LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP) * LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP;
-            long widthSteps1 = (searchMaxX - baseX1) / LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP + 1;
-            long heightSteps1 = (searchMaxZ - baseZ1) / LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP + 1;
+            int phase1Step = fastMode
+                ? LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP_FAST
+                : LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP_PRECISE;
+            int baseX1 = (searchMinX / phase1Step) * phase1Step;
+            int baseZ1 = (searchMinZ / phase1Step) * phase1Step;
+            long widthSteps1 = (searchMaxX - baseX1) / phase1Step + 1;
+            long heightSteps1 = (searchMaxZ - baseZ1) / phase1Step + 1;
             long totalGrid = widthSteps1 * heightSteps1;
             if (totalGrid > LowYDripstoneCaveSearchRunner.MAX_SEARCH_AREA_BLOCKS) {
                 JOptionPane.showMessageDialog(this, getString("error.searchAreaTooLarge"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
@@ -1117,6 +1179,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             searchMinRiverAreaField.setEnabled(false);
             searchMinRiverRatioField.setEnabled(false);
             searchRiverWeightField.setEnabled(false);
+            if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(false);
             applyBoundFieldEnableState(false);
             if (languageComboBox != null) languageComboBox.setEnabled(false);
             final long resultToken = singleSearchResultToken.incrementAndGet();
@@ -1128,7 +1191,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             searchRemainingTimeLabel.setText(getString("remainingTime.calculating"));
 
             searchRunner = new LowYDripstoneCaveSearchRunner();
-            if (!searchRunner.startRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount,
+            if (!searchRunner.startRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode,
                 info -> updateCaveSearchProgress(resultToken, info),
                 line -> addSearchResult(resultToken, line))) {
                 isSearchRunning = false;
@@ -1543,6 +1606,18 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         applyListBoundFieldEnableState(true);
         applyListSquareSideToBounds();
 
+        // 快速模式（列表页最后一项）
+        gbc.gridx = 0;
+        gbc.gridy = 10;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        listFastModeCheckBox = new JCheckBox(getString("label.fastMode"), true);
+        listFastModeCheckBox.setFont(getLoadedFont());
+        listFastModeCheckBox.addActionListener(e -> onFastModeToggled(false));
+        inputPanel.add(listFastModeCheckBox, gbc);
+        gbc.gridwidth = 1;
+
         // 列表 Tab 内面积↔占比：仅 focusLost 时联动，避免输入时被覆盖
 
         // 按钮区域
@@ -1711,6 +1786,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchMinRiverAreaField.setEnabled(true);
         searchMinRiverRatioField.setEnabled(true);
         searchRiverWeightField.setEnabled(true);
+        if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(true);
         applyBoundFieldEnableState(true);
         if (languageComboBox != null) languageComboBox.setEnabled(true);
     }
@@ -1938,6 +2014,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (searchRiverWeightLabel != null) {
             searchRiverWeightLabel.setText(getString("label.riverWeight"));
         }
+        if (searchFastModeCheckBox != null) {
+            searchFastModeCheckBox.setText(getString("label.fastMode"));
+        }
         if (searchMinXLabel != null) {
             searchMinXLabel.setText(getString("label.minX"));
         }
@@ -2037,6 +2116,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         }
         if (listSearchRiverWeightLabel != null) {
             listSearchRiverWeightLabel.setText(getString("label.riverWeight"));
+        }
+        if (listFastModeCheckBox != null) {
+            listFastModeCheckBox.setText(getString("label.fastMode"));
         }
 
         // 更新按钮文本
@@ -2200,7 +2282,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         try {
             if (selectedSeedFile == null) return;
-            int minArea = parseMinRiverArea(listMinRiverAreaField);
+            int minArea = parseMinRiverArea(listMinRiverAreaField, isListFastMode());
             if (minArea < 0) minArea = 0;
             int minX = Integer.parseInt(listMinXField.getText().trim());
             int maxX = Integer.parseInt(listMaxXField.getText().trim());
@@ -2221,6 +2303,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 listMinRiverAreaField.setEnabled(true);
                 listMinRiverRatioField.setEnabled(true);
                 listRiverWeightField.setEnabled(true);
+                if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
                 applyListBoundFieldEnableState(true);
                 listSearchResultToken.incrementAndGet();
                 listSearchResultArea.setText("");
@@ -2346,7 +2429,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 }
             }
 
-            int minArea = parseMinRiverArea(listMinRiverAreaField);
+            boolean fastMode = isListFastMode();
+            int minArea = parseMinRiverArea(listMinRiverAreaField, fastMode);
             if (minArea < 0) {
                 JOptionPane.showMessageDialog(this, getString("error.minRiverAreaInvalid"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
                 return;
@@ -2442,10 +2526,13 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             int listSearchMaxX = maxX + LowYDripstoneCaveSearchRunner.RING_OUTER;
             int listSearchMinZ = minZ - LowYDripstoneCaveSearchRunner.RING_OUTER;
             int listSearchMaxZ = maxZ + LowYDripstoneCaveSearchRunner.RING_OUTER;
-            int listBaseX1 = (listSearchMinX / LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP) * LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP;
-            int listBaseZ1 = (listSearchMinZ / LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP) * LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP;
-            long listWidthSteps1 = (listSearchMaxX - listBaseX1) / LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP + 1;
-            long listHeightSteps1 = (listSearchMaxZ - listBaseZ1) / LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP + 1;
+            int listPhase1Step = fastMode
+                ? LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP_FAST
+                : LowYDripstoneCaveSearchRunner.PHASE1_GRID_STEP_PRECISE;
+            int listBaseX1 = (listSearchMinX / listPhase1Step) * listPhase1Step;
+            int listBaseZ1 = (listSearchMinZ / listPhase1Step) * listPhase1Step;
+            long listWidthSteps1 = (listSearchMaxX - listBaseX1) / listPhase1Step + 1;
+            long listHeightSteps1 = (listSearchMaxZ - listBaseZ1) / listPhase1Step + 1;
             long listTotalGrid = listWidthSteps1 * listHeightSteps1;
             if (listTotalGrid > LowYDripstoneCaveSearchRunner.MAX_SEARCH_AREA_BLOCKS) {
                 JOptionPane.showMessageDialog(this, getString("error.searchAreaTooLarge"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
@@ -2471,6 +2558,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             listMinRiverAreaField.setEnabled(false);
             listMinRiverRatioField.setEnabled(false);
             listRiverWeightField.setEnabled(false);
+            if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(false);
             applyListBoundFieldEnableState(false);
             final long listResultToken = listSearchResultToken.incrementAndGet();
             listSearchResultArea.setText("");
@@ -2486,6 +2574,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             final int finalMinArea = minArea;
             final float finalRiverWeight = riverWeight;
             final int finalThreadCount = threadCount;
+            final boolean finalFastMode = fastMode;
             final long totalSeeds = seeds.size();
             final long startTime = System.currentTimeMillis();
             // 暂停时间跟踪
@@ -2600,7 +2689,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                         });
                     };
 
-                    listSearchRunner.runRiverSearchBlocking(seed, minX, maxX, minZ, maxZ, finalMinArea, finalRiverWeight, finalThreadCount, seedProgressCallback, seedResultCallback);
+                    listSearchRunner.runRiverSearchBlocking(seed, minX, maxX, minZ, maxZ, finalMinArea, finalRiverWeight, finalThreadCount, finalFastMode, seedProgressCallback, seedResultCallback);
 
                     while (listSearchRunner.isRunning() && isListSearchRunning) {
                         while (isListSearchPaused && isListSearchRunning) {
@@ -2680,6 +2769,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                     listMinRiverAreaField.setEnabled(true);
                     listMinRiverRatioField.setEnabled(true);
                     listRiverWeightField.setEnabled(true);
+                    if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
                     applyListBoundFieldEnableState(true);
                     listSearchProgressBar.setValue((int) totalSeeds);
                     listSearchProgressBar.setString(getString("progress.seedsDone", totalSeeds, totalSeeds));
@@ -2725,6 +2815,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         listMinRiverAreaField.setEnabled(true);
         listMinRiverRatioField.setEnabled(true);
         listRiverWeightField.setEnabled(true);
+        if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
         applyListBoundFieldEnableState(true);
         listSearchRemainingTimeLabel.setText(getString("remainingTime.stopped"));
     }

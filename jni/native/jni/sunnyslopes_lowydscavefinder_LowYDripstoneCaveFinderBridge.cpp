@@ -57,7 +57,8 @@ static void applyPreserveRange(std::vector<Res> &res, float opV)
 
 JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge_riverSearch
   (JNIEnv *env, jclass, jlong seed, jint startX, jint startZ,
-   jint width, jint height, jint /*y*/, jint minArea, jfloat opV, jfloat riverWeight, jint numThreads)
+   jint width, jint height, jint /*y*/, jint minArea, jfloat opV, jfloat riverWeight, jint numThreads,
+   jint contScale, jint weirdScale)
 {
     std::lock_guard<std::mutex> guard(searchMutex);
 
@@ -76,7 +77,18 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
     if (threads < 1) threads = 1;
 
     try {
-        findBiggestRiverParallelPool(globalResults, &g, startX, startZ, width, height, minArea, &progress, threads);
+        /* cont/weird <=0 → SearchConfig defaults (Cont@128 + Weird@32), same as pre-UI call. */
+        if (contScale <= 0 && weirdScale <= 0) {
+            findBiggestRiverParallelPool(globalResults, &g, startX, startZ, width, height, minArea,
+                                         &progress, threads);
+        } else {
+            int cont = contScale > 0 ? (int) contScale : SearchConfig::PHASE1_CONT_PREFILTER_SCALE;
+            int weird = weirdScale > 0 ? (int) weirdScale : SearchConfig::PHASE1_WEIRDNESS_GRID_SCALE;
+            if (cont % weird != 0)
+                cont = weird;
+            findBiggestRiverParallelPool(globalResults, &g, startX, startZ, width, height, minArea,
+                                         &progress, threads, cont, /*phase1Pipeline=*/1, weird);
+        }
     } catch (const std::bad_alloc &) {
         resetProgressState();
         return nullptr;

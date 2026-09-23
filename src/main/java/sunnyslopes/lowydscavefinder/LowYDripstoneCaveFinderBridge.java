@@ -120,10 +120,13 @@ public final class LowYDripstoneCaveFinderBridge {
      * @param preserveRange reserved (legacy refinement coefficient; no longer truncates results)
      * @param riverWeight river area weight in total = cave + river × riverWeight, range [0, 1]
      * @param numThreads thread count ({@code <= 0} uses hardware concurrency in native)
+     * @param contScale Phase-1 continentalness prefilter grid scale (e.g. 128 fast / 32 precise)
+     * @param weirdScale Phase-1 weirdness ring grid scale (e.g. 32 fast / 16 precise)
      * @return [x1, z1, total1, cave1, river1, x2, z2, total2, cave2, river2, ...] or null
      */
     public static native int[] riverSearch(long seed, int startX, int startZ,
-        int width, int height, int y, int minArea, float preserveRange, float riverWeight, int numThreads);
+        int width, int height, int y, int minArea, float preserveRange, float riverWeight, int numThreads,
+        int contScale, int weirdScale);
 
 
     /**

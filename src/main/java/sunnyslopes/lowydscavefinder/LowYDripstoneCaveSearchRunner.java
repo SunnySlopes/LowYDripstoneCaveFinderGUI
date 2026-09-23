@@ -19,7 +19,12 @@ public class LowYDripstoneCaveSearchRunner {
     public static final int RING_INNER = 24;
     public static final int RING_OUTER = 128;
     /** Used by UI for search area validation. */
-    public static final int PHASE1_GRID_STEP = 16;
+    public static final int PHASE1_GRID_STEP_FAST = 32;
+    public static final int PHASE1_GRID_STEP_PRECISE = 16;
+    public static final int PHASE1_CONT_SCALE_FAST = 128;
+    public static final int PHASE1_WEIRD_SCALE_FAST = 32;
+    public static final int PHASE1_CONT_SCALE_PRECISE = 32;
+    public static final int PHASE1_WEIRD_SCALE_PRECISE = 16;
 
     /** Full ring area π×(128²−24²); upper bound for weighted total (s=) percentage. */
     public static final double RIVER_AREA_FULL = Math.PI * (128 * 128 - 24 * 24);
@@ -28,7 +33,7 @@ public class LowYDripstoneCaveSearchRunner {
     public static final long MAX_SEARCH_AREA_BLOCKS = 60_000_001L * 60_000_001L;
 
     /** Default river weight in total = cave + river × weight. */
-    public static final float DEFAULT_RIVER_WEIGHT = 0.7f;
+    public static final float DEFAULT_RIVER_WEIGHT = 0.75f;
 
     /** Matches native refinement threshold coefficient (opV); retained for JNI compatibility. */
     public static final float DEFAULT_PRESERVE_RANGE = 0.9f;
@@ -186,12 +191,13 @@ public class LowYDripstoneCaveSearchRunner {
 
     /** Start river search for one seed. Runs in background thread. Returns false if another search is still active. */
     public boolean startRiverSearch(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
-                                 float riverWeight, int threadCount,
+                                 float riverWeight, int threadCount, boolean fastMode,
                                  Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         if (!tryAcquireActiveRunner()) {
             return false;
         }
-        Thread t = new Thread(() -> runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, progressCallback, resultCallback),
+        Thread t = new Thread(() -> runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount,
+                fastMode, progressCallback, resultCallback),
             "lowydripstonecavefinder-search");
         t.setDaemon(true);
         t.start();
@@ -200,12 +206,13 @@ public class LowYDripstoneCaveSearchRunner {
 
     /** Run river search for one seed on the current thread (for list search). Returns false if another search is still active. */
     public boolean runRiverSearchBlocking(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
-                                       float riverWeight, int threadCount,
+                                       float riverWeight, int threadCount, boolean fastMode,
                                        Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         if (!tryAcquireActiveRunner()) {
             return false;
         }
-        runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, progressCallback, resultCallback);
+        runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode,
+                progressCallback, resultCallback);
         return true;
     }
 
@@ -228,7 +235,7 @@ public class LowYDripstoneCaveSearchRunner {
     }
 
     private void runRiverSearch(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
-                               float riverWeight, int threadCount,
+                               float riverWeight, int threadCount, boolean fastMode,
                                Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         isRunning = true;
         isPaused = false;
@@ -336,10 +343,13 @@ public class LowYDripstoneCaveSearchRunner {
 
         try {
             float weight = Math.max(0f, Math.min(1f, riverWeight));
+            /* Fast mode: 0 → native SearchConfig defaults (Cont@128 + Weird@32), same as pre-UI path. */
+            int contScale = fastMode ? 0 : PHASE1_CONT_SCALE_PRECISE;
+            int weirdScale = fastMode ? 0 : PHASE1_WEIRD_SCALE_PRECISE;
             int[] raw;
             synchronized (NATIVE_LOCK) {
                 raw = LowYDripstoneCaveFinderBridge.riverSearch(seed, startX, startZ, width, height, 0, minArea,
-                    DEFAULT_PRESERVE_RANGE, weight, threads);
+                    DEFAULT_PRESERVE_RANGE, weight, threads, contScale, weirdScale);
             }
 
             if (raw != null && resultCallback != null) {

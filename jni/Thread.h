@@ -60,6 +60,9 @@ public:
 private:
     void clean()
     {
+#ifdef CONT_PREFILTER_BENCH
+        return; /* keep all peaks for miss-rate stats */
+#endif
         if (results_.size() > 4000)
         {
             std::nth_element(results_.begin(),
