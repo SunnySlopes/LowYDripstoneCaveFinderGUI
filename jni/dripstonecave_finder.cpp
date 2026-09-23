@@ -518,6 +518,7 @@ void findBiggestRiverParallelPool(
         progress->total.store(totalChunks);
 
     const uint64_t seedVal = g->seed;
+    const int mcVer = g->mc > 0 ? g->mc : MC_26_1;
 
     for (int x = 0; x < sx; x += step)
     {
@@ -531,7 +532,7 @@ void findBiggestRiverParallelPool(
 
             if (currentSx >= tile && currentSz >= tile)
             {
-                pool.enqueue([&, x, z, currentSx, currentSz, seedVal, contScale, weirdScale]() {
+                pool.enqueue([&, x, z, currentSx, currentSz, seedVal, contScale, weirdScale, mcVer]() {
                     if (progress)
                     {
                         if (progress->try_stop.load()) return;
@@ -545,11 +546,14 @@ void findBiggestRiverParallelPool(
 
                     thread_local Generator tlsG;
                     thread_local bool tlsInited = false;
+                    thread_local int tlsMc = -1;
                     thread_local uint64_t tlsSeed = ~0ull;
-                    if (!tlsInited)
+                    if (!tlsInited || tlsMc != mcVer)
                     {
-                        setupGenerator(&tlsG, MC_1_21_3, FORCE_OCEAN_VARIANTS);
+                        setupGenerator(&tlsG, mcVer, FORCE_OCEAN_VARIANTS);
                         tlsInited = true;
+                        tlsMc = mcVer;
+                        tlsSeed = ~0ull;
                     }
                     if (tlsSeed != seedVal)
                     {

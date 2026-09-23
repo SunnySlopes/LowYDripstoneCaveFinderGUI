@@ -20,9 +20,9 @@ The program has two tabs: **Single Seed Search** and **Search from Seed List**.
 
 程序有两个标签页：**单种子搜索**和**从种子列表搜索**。
 
-Both tabs include a **Fast Mode** checkbox (on by default). See [Fast Mode / Precise Mode](#fast-mode--precise-mode--快速模式与精确模式) below.
+Both tabs include a **Fast Mode** checkbox (on by default) and a **Game Version** selector: `1.18~26.1` (cubiomes 26.1) or `26.2+` (cubiomes 26.3, includes sulfur caves). See [Fast Mode / Precise Mode](#fast-mode--precise-mode--快速模式与精确模式) below.
 
-两个标签页均有**快速模式**勾选框（默认勾选）。详见下方[快速模式与精确模式](#fast-mode--precise-mode--快速模式与精确模式)。
+两个标签页均有**快速模式**勾选框（默认勾选）和**游戏版本**选项：`1.18~26.1`（按 cubiomes 26.1）或 `26.2+`（按 cubiomes 26.3，含硫磺洞穴）。详见下方[快速模式与精确模式](#fast-mode--precise-mode--快速模式与精确模式)。
 
 ### Single Seed Search / 单种子搜索
 
@@ -70,13 +70,13 @@ Phase 1 coarse scan uses continentalness (Cont) + weirdness (ridge) climate samp
 ## Search Semantics / 搜索语义
 
 - Native code samples biomes at fixed heights **Y = -60, -56, -52** (cave + river averaged).
-- **Weighted total** (`total` / `s=` in output): `cave + river × river weight factor` (UI default 0.7)
+- **Weighted total** (`total` / `s=` in output): `cave + river × river weight factor` (UI default 0.75)
 - Sorting, filtering threshold, and percentage use **total**; `cave` and `river` are reference display only.
 - Result line format: `/tp x 64 z s=total/49662 = pct% cave=N river=M`
 - Weighted total ratio range: Fast Mode **60%～95%**, Precise Mode **40%～95%**.
 
 - Native 在固定高度 **Y = -60、-56、-52** 采样群系（洞穴+河流取平均）。
-- **加权总面积**（输出中的 `total` / `s=`）：`cave + river × 河流折算系数`（界面默认 0.7）
+- **加权总面积**（输出中的 `total` / `s=`）：`cave + river × 河流折算系数`（界面默认 0.75）
 - 排序、阈值过滤、占比均基于 **total**；`cave` 与 `river` 仅作参考显示。
 - 结果行格式：`/tp x 64 z s=total/49662 = pct% cave=N river=M`
 - 加权总面积占比范围：快速模式 **60%～95%**，精确模式 **40%～95%**。

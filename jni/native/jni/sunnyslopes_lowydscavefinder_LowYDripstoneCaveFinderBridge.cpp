@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../../dripstonecave_finder.cpp"
+#include "cubiomes/util.h"
 
 static std::mutex searchMutex;
 static std::vector<Res> dedup(const std::vector<Res> &v)
@@ -58,15 +59,28 @@ static void applyPreserveRange(std::vector<Res> &res, float opV)
 JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge_riverSearch
   (JNIEnv *env, jclass, jlong seed, jint startX, jint startZ,
    jint width, jint height, jint /*y*/, jint minArea, jfloat opV, jfloat riverWeight, jint numThreads,
-   jint contScale, jint weirdScale)
+   jstring mcVersion, jint contScale, jint weirdScale)
 {
     std::lock_guard<std::mutex> guard(searchMutex);
 
     if (riverWeight < 0.0f) riverWeight = 0.0f;
     if (riverWeight > 1.0f) riverWeight = 1.0f;
 
+    int mc = MC_26_1;
+    if (mcVersion != nullptr)
+    {
+        const char *mcStr = env->GetStringUTFChars(mcVersion, nullptr);
+        if (mcStr != nullptr)
+        {
+            int parsed = str2mc(mcStr);
+            if (parsed != MC_UNDEF)
+                mc = parsed;
+            env->ReleaseStringUTFChars(mcVersion, mcStr);
+        }
+    }
+
     Generator g;
-    setupGenerator(&g, MC_1_21_3, FORCE_OCEAN_VARIANTS);
+    setupGenerator(&g, mc, FORCE_OCEAN_VARIANTS);
     applySeed(&g, DIM_OVERWORLD, (uint64_t) seed);
 
     globalResults.clear();
@@ -121,7 +135,7 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
             {
                 if (progress.try_stop.load())
                     break;
-                pool.enqueue([&, cand = it, seedVal = (uint64_t) seed, minArea, riverWeight]() {
+                pool.enqueue([&, cand = it, seedVal = (uint64_t) seed, minArea, riverWeight, mc]() {
                     if (progress.try_stop.load())
                         return;
                     while (progress.try_pause.load())
@@ -132,14 +146,17 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
                     }
                     progress.chunkInRunning.fetch_add(1);
 
-                    // Per-worker Generator: setup once, re-seed when seed changes.
+                    // Per-worker Generator: setup once, re-seed when seed/mc changes.
                     thread_local Generator tlsG;
                     thread_local bool tlsInited = false;
+                    thread_local int tlsMc = -1;
                     thread_local uint64_t tlsSeed = ~0ull;
-                    if (!tlsInited)
+                    if (!tlsInited || tlsMc != mc)
                     {
-                        setupGenerator(&tlsG, MC_1_21_3, FORCE_OCEAN_VARIANTS);
+                        setupGenerator(&tlsG, mc, FORCE_OCEAN_VARIANTS);
                         tlsInited = true;
+                        tlsMc = mc;
+                        tlsSeed = ~0ull;
                     }
                     if (tlsSeed != seedVal)
                     {

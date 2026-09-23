@@ -26,6 +26,23 @@ public class LowYDripstoneCaveSearchRunner {
     public static final int PHASE1_CONT_SCALE_PRECISE = 32;
     public static final int PHASE1_WEIRD_SCALE_PRECISE = 16;
 
+    /** UI label for worlds without sulfur caves (cubiomes {@code 26.1}). */
+    public static final String MC_RANGE_PRE_SULFUR = "1.18~26.1";
+    /** UI label for worlds with sulfur caves (cubiomes {@code 26.3}). */
+    public static final String MC_RANGE_WITH_SULFUR = "26.2+";
+    /** Default UI version range. */
+    public static final String DEFAULT_MC_VERSION = MC_RANGE_PRE_SULFUR;
+    /** Supported UI version ranges. */
+    public static final String[] SUPPORTED_MC_VERSIONS = {MC_RANGE_PRE_SULFUR, MC_RANGE_WITH_SULFUR};
+
+    /** Map UI range label to cubiomes {@code str2mc} version string. */
+    public static String toCubiomesMcVersion(String uiSelection) {
+        if (MC_RANGE_WITH_SULFUR.equals(uiSelection)) {
+            return "26.3";
+        }
+        return "26.1";
+    }
+
     /** Full ring area π×(128²−24²); upper bound for weighted total (s=) percentage. */
     public static final double RIVER_AREA_FULL = Math.PI * (128 * 128 - 24 * 24);
 
@@ -191,13 +208,13 @@ public class LowYDripstoneCaveSearchRunner {
 
     /** Start river search for one seed. Runs in background thread. Returns false if another search is still active. */
     public boolean startRiverSearch(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
-                                 float riverWeight, int threadCount, boolean fastMode,
+                                 float riverWeight, int threadCount, boolean fastMode, String mcVersion,
                                  Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         if (!tryAcquireActiveRunner()) {
             return false;
         }
         Thread t = new Thread(() -> runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount,
-                fastMode, progressCallback, resultCallback),
+                fastMode, mcVersion, progressCallback, resultCallback),
             "lowydripstonecavefinder-search");
         t.setDaemon(true);
         t.start();
@@ -206,12 +223,12 @@ public class LowYDripstoneCaveSearchRunner {
 
     /** Run river search for one seed on the current thread (for list search). Returns false if another search is still active. */
     public boolean runRiverSearchBlocking(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
-                                       float riverWeight, int threadCount, boolean fastMode,
+                                       float riverWeight, int threadCount, boolean fastMode, String mcVersion,
                                        Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         if (!tryAcquireActiveRunner()) {
             return false;
         }
-        runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode,
+        runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode, mcVersion,
                 progressCallback, resultCallback);
         return true;
     }
@@ -235,7 +252,7 @@ public class LowYDripstoneCaveSearchRunner {
     }
 
     private void runRiverSearch(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
-                               float riverWeight, int threadCount, boolean fastMode,
+                               float riverWeight, int threadCount, boolean fastMode, String mcVersion,
                                Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         isRunning = true;
         isPaused = false;
@@ -346,10 +363,12 @@ public class LowYDripstoneCaveSearchRunner {
             /* Fast mode: 0 → native SearchConfig defaults (Cont@128 + Weird@32), same as pre-UI path. */
             int contScale = fastMode ? 0 : PHASE1_CONT_SCALE_PRECISE;
             int weirdScale = fastMode ? 0 : PHASE1_WEIRD_SCALE_PRECISE;
+            String uiMc = (mcVersion == null || mcVersion.isBlank()) ? DEFAULT_MC_VERSION : mcVersion.trim();
+            String mc = toCubiomesMcVersion(uiMc);
             int[] raw;
             synchronized (NATIVE_LOCK) {
                 raw = LowYDripstoneCaveFinderBridge.riverSearch(seed, startX, startZ, width, height, 0, minArea,
-                    DEFAULT_PRESERVE_RANGE, weight, threads, contScale, weirdScale);
+                    DEFAULT_PRESERVE_RANGE, weight, threads, mc, contScale, weirdScale);
             }
 
             if (raw != null && resultCallback != null) {

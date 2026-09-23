@@ -15,6 +15,8 @@ import java.util.ResourceBundle;
 import java.text.MessageFormat;
 
 import static sunnyslopes.lowydscavefinder.LowYDripstoneCaveSearchRunner.DEFAULT_RIVER_WEIGHT;
+import static sunnyslopes.lowydscavefinder.LowYDripstoneCaveSearchRunner.DEFAULT_MC_VERSION;
+import static sunnyslopes.lowydscavefinder.LowYDripstoneCaveSearchRunner.SUPPORTED_MC_VERSIONS;
 
 public class LowYDripstoneCaveFinderFrame extends JFrame {
     // ResourceBundle for internationalization
@@ -47,7 +49,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private static final double MIN_RIVER_RATIO_UI_PRECISE = MIN_RIVER_AREA_UI_PRECISE / RIVER_AREA_FULL * 100.0;
     private static final double DEFAULT_RIVER_RATIO_UI = DEFAULT_RIVER_AREA_UI / RIVER_AREA_FULL * 100.0;
     private static final double MAX_RIVER_RATIO_UI = MAX_RIVER_AREA_UI / RIVER_AREA_FULL * 100.0;
-    private static final float DEFAULT_RIVER_WEIGHT_UI = 0.70f;
+    private static final float DEFAULT_RIVER_WEIGHT_UI = 0.75f;
 
     // 单种子搜索相关组件
     private JLabel searchSeedLabel;
@@ -56,6 +58,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JLabel searchMinRiverRatioLabel;
     private JLabel searchRiverWeightLabel;
     private JCheckBox searchFastModeCheckBox;
+    private JLabel searchMcVersionLabel;
+    private JComboBox<String> searchMcVersionComboBox;
     private JLabel searchMinXLabel;
     private JLabel searchMaxXLabel;
     private JLabel searchMinZLabel;
@@ -116,6 +120,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JLabel listSearchMinRiverRatioLabel;
     private JLabel listSearchRiverWeightLabel;
     private JCheckBox listFastModeCheckBox;
+    private JLabel listMcVersionLabel;
+    private JComboBox<String> listMcVersionComboBox;
     private JLabel listSearchMinXLabel;
     private JLabel listSearchMaxXLabel;
     private JLabel listSearchMinZLabel;
@@ -222,6 +228,13 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
     private boolean isListFastMode() {
         return listFastModeCheckBox == null || listFastModeCheckBox.isSelected();
+    }
+
+    private String selectedMcVersion(JComboBox<String> combo) {
+        if (combo == null || combo.getSelectedItem() == null) {
+            return DEFAULT_MC_VERSION;
+        }
+        return combo.getSelectedItem().toString();
     }
 
     private int minRiverAreaUi(boolean fastMode) {
@@ -499,9 +512,25 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         applyBoundFieldEnableState(true);
         applySquareSideToBounds();
 
-        // 快速模式（语言选项上方）
+        // Minecraft 版本
         gbc.gridx = 0;
         gbc.gridy = 10;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        searchMcVersionLabel = new JLabel(getString("label.mcVersion"));
+        searchMcVersionLabel.setFont(getLoadedFont());
+        inputPanel.add(searchMcVersionLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        searchMcVersionComboBox = new JComboBox<>(SUPPORTED_MC_VERSIONS);
+        searchMcVersionComboBox.setSelectedItem(DEFAULT_MC_VERSION);
+        searchMcVersionComboBox.setFont(getLoadedFont());
+        inputPanel.add(searchMcVersionComboBox, gbc);
+
+        // 快速模式（语言选项上方）
+        gbc.gridx = 0;
+        gbc.gridy = 11;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
@@ -513,7 +542,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // 语言选择下拉框
         gbc.gridx = 0;
-        gbc.gridy = 11;
+        gbc.gridy = 12;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         searchLanguageLabel = new JLabel(getString("label.language"));
@@ -754,6 +783,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 searchMinRiverRatioField.setEnabled(true);
                 searchRiverWeightField.setEnabled(true);
                 if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(true);
+                if (searchMcVersionComboBox != null) searchMcVersionComboBox.setEnabled(true);
                 applyBoundFieldEnableState(true);
                 if (languageComboBox != null) {
                     languageComboBox.setEnabled(true);
@@ -1180,6 +1210,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             searchMinRiverRatioField.setEnabled(false);
             searchRiverWeightField.setEnabled(false);
             if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(false);
+            if (searchMcVersionComboBox != null) searchMcVersionComboBox.setEnabled(false);
             applyBoundFieldEnableState(false);
             if (languageComboBox != null) languageComboBox.setEnabled(false);
             final long resultToken = singleSearchResultToken.incrementAndGet();
@@ -1192,6 +1223,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
             searchRunner = new LowYDripstoneCaveSearchRunner();
             if (!searchRunner.startRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode,
+                selectedMcVersion(searchMcVersionComboBox),
                 info -> updateCaveSearchProgress(resultToken, info),
                 line -> addSearchResult(resultToken, line))) {
                 isSearchRunning = false;
@@ -1606,9 +1638,25 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         applyListBoundFieldEnableState(true);
         applyListSquareSideToBounds();
 
-        // 快速模式（列表页最后一项）
+        // Minecraft 版本
         gbc.gridx = 0;
         gbc.gridy = 10;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        listMcVersionLabel = new JLabel(getString("label.mcVersion"));
+        listMcVersionLabel.setFont(getLoadedFont());
+        inputPanel.add(listMcVersionLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        listMcVersionComboBox = new JComboBox<>(SUPPORTED_MC_VERSIONS);
+        listMcVersionComboBox.setSelectedItem(DEFAULT_MC_VERSION);
+        listMcVersionComboBox.setFont(getLoadedFont());
+        inputPanel.add(listMcVersionComboBox, gbc);
+
+        // 快速模式（列表页最后一项）
+        gbc.gridx = 0;
+        gbc.gridy = 11;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
@@ -1787,6 +1835,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchMinRiverRatioField.setEnabled(true);
         searchRiverWeightField.setEnabled(true);
         if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(true);
+        if (searchMcVersionComboBox != null) searchMcVersionComboBox.setEnabled(true);
         applyBoundFieldEnableState(true);
         if (languageComboBox != null) languageComboBox.setEnabled(true);
     }
@@ -2017,6 +2066,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (searchFastModeCheckBox != null) {
             searchFastModeCheckBox.setText(getString("label.fastMode"));
         }
+        if (searchMcVersionLabel != null) {
+            searchMcVersionLabel.setText(getString("label.mcVersion"));
+        }
         if (searchMinXLabel != null) {
             searchMinXLabel.setText(getString("label.minX"));
         }
@@ -2119,6 +2171,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         }
         if (listFastModeCheckBox != null) {
             listFastModeCheckBox.setText(getString("label.fastMode"));
+        }
+        if (listMcVersionLabel != null) {
+            listMcVersionLabel.setText(getString("label.mcVersion"));
         }
 
         // 更新按钮文本
@@ -2304,6 +2359,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 listMinRiverRatioField.setEnabled(true);
                 listRiverWeightField.setEnabled(true);
                 if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
+                if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(true);
                 applyListBoundFieldEnableState(true);
                 listSearchResultToken.incrementAndGet();
                 listSearchResultArea.setText("");
@@ -2559,6 +2615,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             listMinRiverRatioField.setEnabled(false);
             listRiverWeightField.setEnabled(false);
             if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(false);
+            if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(false);
             applyListBoundFieldEnableState(false);
             final long listResultToken = listSearchResultToken.incrementAndGet();
             listSearchResultArea.setText("");
@@ -2575,6 +2632,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             final float finalRiverWeight = riverWeight;
             final int finalThreadCount = threadCount;
             final boolean finalFastMode = fastMode;
+            final String finalMcVersion = selectedMcVersion(listMcVersionComboBox);
             final long totalSeeds = seeds.size();
             final long startTime = System.currentTimeMillis();
             // 暂停时间跟踪
@@ -2689,7 +2747,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                         });
                     };
 
-                    listSearchRunner.runRiverSearchBlocking(seed, minX, maxX, minZ, maxZ, finalMinArea, finalRiverWeight, finalThreadCount, finalFastMode, seedProgressCallback, seedResultCallback);
+                    listSearchRunner.runRiverSearchBlocking(seed, minX, maxX, minZ, maxZ, finalMinArea, finalRiverWeight, finalThreadCount, finalFastMode, finalMcVersion, seedProgressCallback, seedResultCallback);
 
                     while (listSearchRunner.isRunning() && isListSearchRunning) {
                         while (isListSearchPaused && isListSearchRunning) {
@@ -2770,6 +2828,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                     listMinRiverRatioField.setEnabled(true);
                     listRiverWeightField.setEnabled(true);
                     if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
+                    if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(true);
                     applyListBoundFieldEnableState(true);
                     listSearchProgressBar.setValue((int) totalSeeds);
                     listSearchProgressBar.setString(getString("progress.seedsDone", totalSeeds, totalSeeds));
@@ -2816,6 +2875,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         listMinRiverRatioField.setEnabled(true);
         listRiverWeightField.setEnabled(true);
         if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
+        if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(true);
         applyListBoundFieldEnableState(true);
         listSearchRemainingTimeLabel.setText(getString("remainingTime.stopped"));
     }
