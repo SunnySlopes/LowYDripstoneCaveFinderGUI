@@ -15,6 +15,9 @@ constexpr int PHASE1_CONT_PREFILTER_DILATE = 1;
  */
 constexpr int PHASE1_WEIRDNESS_GRID_SCALE = 32;
 
+/** 大范围搜索启用阶段 0（Cont/Ridge A 周期表）的最小边长（方块，含外扩前用户区）。 */
+constexpr long long PHASE0_MIN_SIDE_BLOCKS = 1000000LL;
+
 /** 峰值邻域 ClimateCoarse 精筛步长（方块）。 */
 constexpr int PHASE1_CLIMATE_GRID_SCALE = 4;
 

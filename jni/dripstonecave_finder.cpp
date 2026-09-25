@@ -378,30 +378,36 @@ std::vector<Res> findBiggestRiver(
     const auto &ring = getRingMask<scale>();
 
     auto ringSum = [&](const std::vector<int> &pref, int cx, int cz) -> int {
+        /* Hot path: annular sum via 2D prefix; keep branch light and locals in registers. */
         int area = 0;
+        const int *prefData = pref.data();
         for (const auto &m: ring.rows)
         {
             const int row = cz + m.dz;
+            const int row1 = row + 1;
+            const size_t base1 = (size_t) row1 * (size_t) stride;
+            const size_t base0 = (size_t) row * (size_t) stride;
             const int L = cx - m.out;
             const int R = cx + m.out;
-            if (m.in == -1)
+            if (m.in < 0)
             {
-                area += pref[(size_t) (R + 1) + (size_t) (row + 1) * stride]
-                      - pref[(size_t) L + (size_t) (row + 1) * stride]
-                      - pref[(size_t) (R + 1) + (size_t) row * stride]
-                      + pref[(size_t) L + (size_t) row * stride];
-            } else
+                area += prefData[base1 + (size_t) (R + 1)]
+                      - prefData[base1 + (size_t) L]
+                      - prefData[base0 + (size_t) (R + 1)]
+                      + prefData[base0 + (size_t) L];
+            }
+            else
             {
                 const int Lin = cx - m.in;
                 const int Rin = cx + m.in;
-                area += pref[(size_t) Lin + (size_t) (row + 1) * stride]
-                      - pref[(size_t) L + (size_t) (row + 1) * stride]
-                      - pref[(size_t) Lin + (size_t) row * stride]
-                      + pref[(size_t) L + (size_t) row * stride];
-                area += pref[(size_t) (R + 1) + (size_t) (row + 1) * stride]
-                      - pref[(size_t) (Rin + 1) + (size_t) (row + 1) * stride]
-                      - pref[(size_t) (R + 1) + (size_t) row * stride]
-                      + pref[(size_t) (Rin + 1) + (size_t) row * stride];
+                area += prefData[base1 + (size_t) Lin]
+                      - prefData[base1 + (size_t) L]
+                      - prefData[base0 + (size_t) Lin]
+                      + prefData[base0 + (size_t) L];
+                area += prefData[base1 + (size_t) (R + 1)]
+                      - prefData[base1 + (size_t) (Rin + 1)]
+                      - prefData[base0 + (size_t) (R + 1)]
+                      + prefData[base0 + (size_t) (Rin + 1)];
             }
         }
         return area;
@@ -409,13 +415,43 @@ std::vector<Res> findBiggestRiver(
 
     CandidateArea maxA{0, 0, 0, 0, 0};
 
+    /* Sparse ring centers: Chebyshev dilate of pass cells by R_out (keeps recall vs raw==1-only). */
+    std::vector<uint8_t> centerCand;
+    if constexpr (scale > 1)
+    {
+        centerCand.assign((size_t) W * (size_t) H, 0);
+        for (int z = 0; z < H; z++)
+        {
+            for (int x = 0; x < W; x++)
+            {
+                if (!RAWR(x, z))
+                    continue;
+                const int z0 = std::max(R_out, z - R_out);
+                const int z1 = std::min(H - R_out - 1, z + R_out);
+                const int x0 = std::max(R_out, x - R_out);
+                const int x1 = std::min(W - R_out - 1, x + R_out);
+                for (int cz = z0; cz <= z1; cz++)
+                    for (int cx = x0; cx <= x1; cx++)
+                        centerCand[(size_t) cz * (size_t) W + (size_t) cx] = 1;
+            }
+        }
+    }
+
     for (int cz = R_out; cz < H - R_out; cz++)
     {
         for (int cx = R_out; cx < W - R_out; cx++)
         {
-            // Skip ring centers whose bounding box has no positive cells
-            if (!occAnyInRect(cx - R_out, cx + R_out, cz - R_out, cz + R_out))
-                continue;
+            if constexpr (scale > 1)
+            {
+                if (!centerCand[(size_t) cz * (size_t) W + (size_t) cx])
+                    continue;
+            }
+            else
+            {
+                /* Skip ring centers whose bounding box has no positive cells */
+                if (!occAnyInRect(cx - R_out, cx + R_out, cz - R_out, cz + R_out))
+                    continue;
+            }
 
             int worldTotal;
             int worldCave;

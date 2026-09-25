@@ -31,7 +31,7 @@ public class LowYDripstoneCaveSearchRunner {
     /** UI label for worlds with sulfur caves (cubiomes {@code 26.3}). */
     public static final String MC_RANGE_WITH_SULFUR = "26.2+";
     /** Default UI version range. */
-    public static final String DEFAULT_MC_VERSION = MC_RANGE_PRE_SULFUR;
+    public static final String DEFAULT_MC_VERSION = MC_RANGE_WITH_SULFUR;
     /** Supported UI version ranges. */
     public static final String[] SUPPORTED_MC_VERSIONS = {MC_RANGE_PRE_SULFUR, MC_RANGE_WITH_SULFUR};
 
@@ -136,7 +136,7 @@ public class LowYDripstoneCaveSearchRunner {
         }
         int phase = progress[2];
         int status = progress[3];
-        if (phase == 1) {
+        if (phase == 0 || phase == 1) {
             return status == 1;
         }
         if (phase == 2) {
@@ -314,7 +314,15 @@ public class LowYDripstoneCaveSearchRunner {
                 boolean refining;
                 long phaseElapsedForEta;
                 long elapsed = getElapsedMs();
-                if (nPhase == 1) {
+                if (nPhase == 0) {
+                    if (tot <= 0) {
+                        return;
+                    }
+                    processed = cur;
+                    total = tot;
+                    refining = false;
+                    phaseElapsedForEta = elapsed;
+                } else if (nPhase == 1) {
                     if (tot <= 1) {
                         return;
                     }

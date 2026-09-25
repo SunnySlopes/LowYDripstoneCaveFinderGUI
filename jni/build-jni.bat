@@ -33,9 +33,11 @@ gcc -std=c17 -O3 %CDEF% -c "%CUB%\generator.c" "%CUB%\layers.c" "%CUB%\biomenois
 if errorlevel 1 exit /b 1
 g++ -std=c++20 -O3 %CXXDEF% -c BiomeSampler.cpp
 if errorlevel 1 exit /b 1
+g++ -std=c++20 -O3 %CXXDEF% -c OctaveFieldCache.cpp
+if errorlevel 1 exit /b 1
 g++ -std=c++20 -O3 %CXXDEF% -c native/jni/sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge.cpp -o bridge.o
 if errorlevel 1 exit /b 1
-g++ -shared -O3 -o "%OUT%\libDripstoneCaveFinderLibJ.dll" generator.o layers.o biomenoise.o biomes.o noise.o util.o BiomeSampler.o bridge.o -static -static-libgcc -static-libstdc++ -pthread
+g++ -shared -O3 -o "%OUT%\libDripstoneCaveFinderLibJ.dll" generator.o layers.o biomenoise.o biomes.o noise.o util.o BiomeSampler.o OctaveFieldCache.o bridge.o -static -static-libgcc -static-libstdc++ -pthread
 if errorlevel 1 exit /b 1
 
 copy /y "%OUT%\libDripstoneCaveFinderLibJ.dll" "%RF%\windows\libDripstoneCaveFinderLibJ.dll"

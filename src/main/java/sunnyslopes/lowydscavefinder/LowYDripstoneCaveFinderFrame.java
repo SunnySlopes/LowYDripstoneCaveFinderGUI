@@ -164,6 +164,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     // 存储每个种子的结果
     private final Map<Long, List<String>> seedResults = new HashMap<>();
 
+
     // 加载的字体
     private Font loadedFont = null;
     // 当前语言Locale
@@ -1802,7 +1803,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             searchProgressBar.setIndeterminate(false);
             int progress = (int) Math.min(100, info.percentage());
             searchProgressBar.setValue(progress);
-            String stageKey = (info.phase() == 2 || info.phase() == -1) ? "progress.stage2" : "progress.stage1";
+            String stageKey = (info.phase() == 0) ? "progress.stage0"
+                    : ((info.phase() == 2 || info.phase() == -1) ? "progress.stage2" : "progress.stage1");
             searchProgressBar.setString(getString(stageKey, info.processed(), info.total(), info.percentage()));
 
             searchElapsedTimeLabel.setText(getString("elapsedTime", formatTime(info.elapsedMs())));

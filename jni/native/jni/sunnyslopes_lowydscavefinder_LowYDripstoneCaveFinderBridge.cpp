@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../../dripstonecave_finder.cpp"
+#include "../../OctaveFieldCache.h"
 #include "cubiomes/util.h"
 
 static std::mutex searchMutex;
@@ -85,12 +86,57 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
 
     globalResults.clear();
     resetProgressState();
-    progress.phase1.store(1);
 
     int threads = numThreads > 0 ? numThreads : static_cast<int>(std::thread::hardware_concurrency());
     if (threads < 1) threads = 1;
 
+    /* Phase 0: Cont/Ridge A period tables for large searches (full-map tab). */
+    const long long userW = (long long) width - 2LL * 128;
+    const long long userH = (long long) height - 2LL * 128;
+    const bool wantPhase0 =
+        (userW >= SearchConfig::PHASE0_MIN_SIDE_BLOCKS && userH >= SearchConfig::PHASE0_MIN_SIDE_BLOCKS)
+        || (userW > 0 && userH > 0
+            && userW * userH >= SearchConfig::PHASE0_MIN_SIDE_BLOCKS * SearchConfig::PHASE0_MIN_SIDE_BLOCKS);
+
+    OctaveACache octaveCache;
+    setActiveOctaveACache(nullptr);
+
     try {
+        if (wantPhase0)
+        {
+            progress.phase1.store(0);
+            progress.chunkInRunning.store(0);
+            const int contSc = (contScale > 0) ? (int) contScale : SearchConfig::PHASE1_CONT_PREFILTER_SCALE;
+            const int weirdSc = (weirdScale > 0) ? (int) weirdScale : SearchConfig::PHASE1_WEIRDNESS_GRID_SCALE;
+            if (!buildOctaveACache(&octaveCache, &g.bn, contSc, weirdSc, threads,
+                                  &progress.current, &progress.total,
+                                  &progress.try_pause, &progress.try_stop))
+            {
+                setActiveOctaveACache(nullptr);
+                if (progress.try_stop.load())
+                {
+                    resetProgressState();
+                    return nullptr;
+                }
+                /* Build failed without stop: continue without cache. */
+            }
+            else
+            {
+                setActiveOctaveACache(&octaveCache);
+            }
+            if (progress.try_stop.load())
+            {
+                setActiveOctaveACache(nullptr);
+                resetProgressState();
+                return nullptr;
+            }
+        }
+
+        progress.phase1.store(1);
+        progress.current.store(0);
+        progress.total.store(0);
+        progress.chunkInRunning.store(0);
+
         /* cont/weird <=0 → SearchConfig defaults (Cont@128 + Weird@32), same as pre-UI call. */
         if (contScale <= 0 && weirdScale <= 0) {
             findBiggestRiverParallelPool(globalResults, &g, startX, startZ, width, height, minArea,
@@ -104,12 +150,16 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
                                          &progress, threads, cont, /*phase1Pipeline=*/1, weird);
         }
     } catch (const std::bad_alloc &) {
+        setActiveOctaveACache(nullptr);
         resetProgressState();
         return nullptr;
     } catch (const std::exception &) {
+        setActiveOctaveACache(nullptr);
         resetProgressState();
         return nullptr;
     }
+
+    setActiveOctaveACache(nullptr);
 
     auto res = globalResults.getAllResults();
     if (progress.try_stop.load()) {
@@ -229,7 +279,9 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
     int phase = progress.phase1.load();
     int cur = progress.current.load();
     int tot = progress.total.load();
-    if (phase == 1)
+    if (phase == 0)
+        status = progress.chunkInRunning.load() == 0 ? 1 : 0;
+    else if (phase == 1)
         status = progress.chunkInRunning.load() == 0 ? 1 : 0;
     else if (phase == 2)
         status = cur >= tot ? 2 : 1;

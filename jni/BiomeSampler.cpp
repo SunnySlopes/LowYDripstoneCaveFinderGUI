@@ -1,4 +1,5 @@
 #include "BiomeSampler.h"
+#include "OctaveFieldCache.h"
 #include "cubiomes/biomes.h"
 #include "cubiomes/noise.h"
 #include <cstdlib>
@@ -9,7 +10,26 @@ const int PRECISE_YS[PRECISE_Y_COUNT] = { -60, -56, -52 };
 
 static constexpr double kDoublePerlinF = 337.0 / 331.0;
 
-static double sampleContOctA(const DoublePerlinNoise *dpn, int idx, double x, double y, double z)
+static inline int modPositiveLocal(int a, int m)
+{
+    int r = a % m;
+    if (r < 0)
+        r += m;
+    return r;
+}
+
+static bool climateOnSampleLattice(int b, int sampleScale)
+{
+    if (sampleScale <= 0)
+        return false;
+    const int step = sampleScale / 4;
+    if (step <= 0)
+        return false;
+    const int half = step / 2;
+    return modPositiveLocal(b - half, step) == 0;
+}
+
+static double sampleOctALive(const DoublePerlinNoise *dpn, int idx, double x, double y, double z)
 {
     if (idx < 0 || idx >= dpn->octA.octcnt)
         return 0.0;
@@ -19,6 +39,20 @@ static double sampleContOctA(const DoublePerlinNoise *dpn, int idx, double x, do
     const double ay = maintainPrecision(y * lf);
     const double az = maintainPrecision(z * lf);
     return p->amplitude * samplePerlin(p, ax, ay, az, 0, 0);
+}
+
+static double sampleContOctA(const DoublePerlinNoise *dpn, int idx, double x, double y, double z)
+{
+    const OctaveACache *cache = getActiveOctaveACache();
+    if (cache && cache->ready && y == 0.0 && idx >= 0 && idx < OctaveACache::CONT_OCT)
+    {
+        const int bx = (int) x;
+        const int bz = (int) z;
+        const int scale = cache->contA[idx].sampleScale;
+        if (climateOnSampleLattice(bx, scale) && climateOnSampleLattice(bz, scale))
+            return (double) cache->contA[idx].atClimate(bx, bz);
+    }
+    return sampleOctALive(dpn, idx, x, y, z);
 }
 
 static double sampleContOctB(const DoublePerlinNoise *dpn, int idx, double x, double y, double z)
@@ -31,6 +65,34 @@ static double sampleContOctB(const DoublePerlinNoise *dpn, int idx, double x, do
     const double ay = maintainPrecision(y * lf * kDoublePerlinF);
     const double az = maintainPrecision(z * lf * kDoublePerlinF);
     return p->amplitude * samplePerlin(p, ax, ay, az, 0, 0);
+}
+
+static double sampleWeirdnessCached(const BiomeNoise *bn, double px, double pz)
+{
+    const DoublePerlinNoise *dpn = &bn->climate[NP_WEIRDNESS];
+    const OctaveACache *cache = getActiveOctaveACache();
+    double v = 0.0;
+    const int octCnt = dpn->octA.octcnt < dpn->octB.octcnt ? dpn->octA.octcnt : dpn->octB.octcnt;
+    const int bx = (int) px;
+    const int bz = (int) pz;
+    const bool useCache = cache && cache->ready
+        && px == (double) bx && pz == (double) bz;
+
+    for (int i = 0; i < octCnt; i++)
+    {
+        if (useCache && i < OctaveACache::RIDGE_OCT)
+        {
+            const int scale = cache->ridgeA[i].sampleScale;
+            if (climateOnSampleLattice(bx, scale) && climateOnSampleLattice(bz, scale))
+                v += (double) cache->ridgeA[i].atClimate(bx, bz);
+            else
+                v += sampleOctALive(dpn, i, px, 0.0, pz);
+        }
+        else
+            v += sampleOctALive(dpn, i, px, 0.0, pz);
+        v += sampleContOctB(dpn, i, px, 0.0, pz);
+    }
+    return v * dpn->amplitude;
 }
 
 bool passContinentalnessPartialThr(const BiomeNoise *bn, int bx, int bz, double threshold)
@@ -88,7 +150,11 @@ static int quantWeirdness(const BiomeNoise *bn, int bx, int bz, uint32_t sample_
         px += sampleDoublePerlin(&bn->climate[NP_SHIFT], bx, 0, bz) * 4.0;
         pz += sampleDoublePerlin(&bn->climate[NP_SHIFT], bz, bx, 0) * 4.0;
     }
-    float w = sampleDoublePerlin(&bn->climate[NP_WEIRDNESS], px, 0, pz);
+    float w;
+    if (getActiveOctaveACache() && getActiveOctaveACache()->ready)
+        w = (float) sampleWeirdnessCached(bn, px, pz);
+    else
+        w = sampleDoublePerlin(&bn->climate[NP_WEIRDNESS], px, 0, pz);
     int wi = (int) (10000.0 * w);
     return wi < 0 ? -wi : wi;
 }
