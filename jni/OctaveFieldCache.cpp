@@ -226,3 +226,116 @@ bool buildOctaveACache(
         progressCurrent->store(progressTotal->load());
     return true;
 }
+
+static const OctaveBNoiseCache *g_activeOctaveBNoiseCache = nullptr;
+
+void setActiveOctaveBNoiseCache(const OctaveBNoiseCache *cache)
+{
+    g_activeOctaveBNoiseCache = cache;
+}
+
+const OctaveBNoiseCache *getActiveOctaveBNoiseCache()
+{
+    return g_activeOctaveBNoiseCache;
+}
+
+static inline double wrapPeriod256(double x)
+{
+    double r = std::fmod(x, OctaveBNoiseCache::kPeriod);
+    if (r < 0.0)
+        r += OctaveBNoiseCache::kPeriod;
+    return r;
+}
+
+double OctaveBNoiseCache::Table::sampleRaw(double ax, double az) const
+{
+    if (n <= 0 || data.empty())
+        return 0.0;
+    const double u = wrapPeriod256(ax);
+    const double w = wrapPeriod256(az);
+    const double tu = u * (double) n / OctaveBNoiseCache::kPeriod;
+    const double tw = w * (double) n / OctaveBNoiseCache::kPeriod;
+    int i0 = (int) std::floor(tu);
+    int j0 = (int) std::floor(tw);
+    const double fu = tu - (double) i0;
+    const double fw = tw - (double) j0;
+    i0 %= n;
+    if (i0 < 0) i0 += n;
+    j0 %= n;
+    if (j0 < 0) j0 += n;
+    const int i1 = (i0 + 1) % n;
+    const int j1 = (j0 + 1) % n;
+    const float v00 = data[(size_t) j0 * (size_t) n + (size_t) i0];
+    const float v10 = data[(size_t) j0 * (size_t) n + (size_t) i1];
+    const float v01 = data[(size_t) j1 * (size_t) n + (size_t) i0];
+    const float v11 = data[(size_t) j1 * (size_t) n + (size_t) i1];
+    const double a = (double) v00 * (1.0 - fu) + (double) v10 * fu;
+    const double b = (double) v01 * (1.0 - fu) + (double) v11 * fu;
+    return a * (1.0 - fw) + b * fw;
+}
+
+double OctaveBNoiseCache::Table::sampleClimate(double bx, double bz) const
+{
+    const double ax = maintainPrecision(bx * lacunarity * OctaveBNoiseCache::kDoublePerlinF);
+    const double az = maintainPrecision(bz * lacunarity * OctaveBNoiseCache::kDoublePerlinF);
+    return amplitude * sampleRaw(ax, az);
+}
+
+static void fillBTable(OctaveBNoiseCache::Table *t, const PerlinNoise *p, int n, int numThreads)
+{
+    t->n = n;
+    t->amplitude = p->amplitude;
+    t->lacunarity = p->lacunarity;
+    t->data.assign((size_t) n * (size_t) n, 0.0f);
+    const double step = OctaveBNoiseCache::kPeriod / (double) n;
+
+    std::vector<std::thread> pool;
+    std::atomic_int nextRow{0};
+    int threads = numThreads > 0 ? numThreads : 1;
+    for (int th = 0; th < threads; th++)
+    {
+        pool.emplace_back([&, p, n, step]() {
+            for (;;)
+            {
+                const int j = nextRow.fetch_add(1);
+                if (j >= n)
+                    return;
+                const double w = (double) j * step;
+                for (int i = 0; i < n; i++)
+                {
+                    const double u = (double) i * step;
+                    t->data[(size_t) j * (size_t) n + (size_t) i] =
+                        (float) samplePerlin(p, u, 0.0, w, 0, 0);
+                }
+            }
+        });
+    }
+    for (auto &th : pool)
+        th.join();
+}
+
+bool buildOctaveBNoiseCache(
+    OctaveBNoiseCache *out,
+    const BiomeNoise *bn,
+    int tableN,
+    int numThreads)
+{
+    if (!out || !bn || tableN < 2)
+        return false;
+
+    out->ready = false;
+    const DoublePerlinNoise *cont = &bn->climate[NP_CONTINENTALNESS];
+    const DoublePerlinNoise *ridge = &bn->climate[NP_WEIRDNESS];
+    if (cont->octB.octcnt < OctaveBNoiseCache::CONT_OCT
+        || ridge->octB.octcnt < OctaveBNoiseCache::RIDGE_OCT)
+        return false;
+
+    int threads = numThreads > 0 ? numThreads : 1;
+    for (int i = 0; i < OctaveBNoiseCache::CONT_OCT; i++)
+        fillBTable(&out->contB[i], cont->octB.octaves + i, tableN, threads);
+    for (int i = 0; i < OctaveBNoiseCache::RIDGE_OCT; i++)
+        fillBTable(&out->ridgeB[i], ridge->octB.octaves + i, tableN, threads);
+
+    out->ready = true;
+    return true;
+}

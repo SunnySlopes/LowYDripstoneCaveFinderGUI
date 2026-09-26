@@ -38,9 +38,34 @@ inline constexpr int kRidgeAPeriodWorld[OctaveACache::RIDGE_OCT] = {
 };
 
 /**
- * Build Cont+Ridge A period tables from seeded BiomeNoise.
- * Progress: current/total over all cells; phase should be 0. Honors pause/stop atomics.
+ * Perlin-input-space period-256 tables for Cont/Ridge octB (one table each).
+ * Lookup: (ax,az) = (bx*lf*f, bz*lf*f) mod 256, bilinear interp of samplePerlin,
+ * then * amplitude (same order as sampleContOctB).
  */
+struct OctaveBNoiseCache {
+    static constexpr int CONT_OCT = 5;
+    static constexpr int RIDGE_OCT = 3;
+    static constexpr double kDoublePerlinF = 337.0 / 331.0;
+    static constexpr double kPeriod = 256.0;
+
+    struct Table {
+        int n = 0;
+        double amplitude = 1.0;
+        double lacunarity = 1.0;
+        std::vector<float> data; /* n*n raw samplePerlin (no amplitude) */
+
+        double sampleRaw(double ax, double az) const;
+        double sampleClimate(double bx, double bz) const;
+    };
+
+    Table contB[CONT_OCT];
+    Table ridgeB[RIDGE_OCT];
+    bool ready = false;
+};
+
+/** Dense table for Cont@32 / Weird@16 fidelity (~128 MiB for 8 tables). */
+inline constexpr int kDefaultBNoiseTableN = 2048;
+
 bool buildOctaveACache(
     OctaveACache *out,
     const BiomeNoise *bn,
@@ -52,7 +77,16 @@ bool buildOctaveACache(
     const std::atomic_bool *tryPause,
     const std::atomic_bool *tryStop);
 
-void setActiveOctaveACache(const OctaveACache *cache); /* nullptr disables */
+bool buildOctaveBNoiseCache(
+    OctaveBNoiseCache *out,
+    const BiomeNoise *bn,
+    int tableN,
+    int numThreads);
+
+void setActiveOctaveACache(const OctaveACache *cache);
 const OctaveACache *getActiveOctaveACache();
+
+void setActiveOctaveBNoiseCache(const OctaveBNoiseCache *cache);
+const OctaveBNoiseCache *getActiveOctaveBNoiseCache();
 
 #endif
