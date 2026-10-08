@@ -44,6 +44,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private static final int MIN_RIVER_AREA_UI_FAST = (int) (RIVER_AREA_FULL * 0.60);
     private static final int MIN_RIVER_AREA_UI_PRECISE = (int) (RIVER_AREA_FULL * 0.40);
     private static final int DEFAULT_RIVER_AREA_UI = (int) (RIVER_AREA_FULL * 0.70);
+    /** Area/ratio applied when resetting bounds to the world border. */
+    private static final int WORLD_BORDER_RIVER_AREA_UI = (int) (RIVER_AREA_FULL * 0.90);
+    private static final double WORLD_BORDER_RIVER_RATIO_UI = WORLD_BORDER_RIVER_AREA_UI / RIVER_AREA_FULL * 100.0;
     private static final int MAX_RIVER_AREA_UI = (int) (RIVER_AREA_FULL * 0.95);
     private static final double MIN_RIVER_RATIO_UI_FAST = MIN_RIVER_AREA_UI_FAST / RIVER_AREA_FULL * 100.0;
     private static final double MIN_RIVER_RATIO_UI_PRECISE = MIN_RIVER_AREA_UI_PRECISE / RIVER_AREA_FULL * 100.0;
@@ -1271,6 +1274,26 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
     private void resetSearchToWorldBorder() {
         applySearchBounds(BOUNDARY_MIN_X, BOUNDARY_MAX_X, BOUNDARY_MIN_Z, BOUNDARY_MAX_Z);
+        applySearchMinRiverAreaPercent(WORLD_BORDER_RIVER_RATIO_UI);
+    }
+
+    /** Set single-seed tab min weighted area + ratio (clamped to current fast/precise limits). */
+    private void applySearchMinRiverAreaPercent(double ratioPercent) {
+        if (searchMinRiverAreaField == null || searchMinRiverRatioField == null) {
+            return;
+        }
+        double minRatio = minRiverRatioUi(isSearchFastMode());
+        double ratio = Math.max(minRatio, Math.min(MAX_RIVER_RATIO_UI, ratioPercent));
+        int minArea = minRiverAreaUi(isSearchFastMode());
+        int area = (int) Math.round(RIVER_AREA_FULL * ratio / 100.0);
+        area = Math.max(minArea, Math.min(MAX_RIVER_AREA_UI, area));
+        searchRiverParamUpdating = true;
+        try {
+            searchMinRiverAreaField.setText(String.valueOf(area));
+            searchMinRiverRatioField.setText(String.format("%.2f", ratio));
+        } finally {
+            searchRiverParamUpdating = false;
+        }
     }
 
     private void applySearchBounds(int minX, int maxX, int minZ, int maxZ) {
