@@ -59,6 +59,148 @@ static const RingMask &getRingMask()
     return mask;
 }
 
+/** Continuous area of the 24..128 annulus. Block-center raster of the same ring is 49640. */
+static constexpr double kAnnulusArea = 3.14159265358979323846 * (128.0 * 128.0 - 24.0 * 24.0);
+
+/** ∫_0^t sqrt(r²−u²) du, t clamped to [0, r]. */
+static double integDiskUpper(double t, double r)
+{
+    if (t <= 0.0 || r <= 0.0)
+        return 0.0;
+    if (t > r)
+        t = r;
+    const double s = std::sqrt(std::max(0.0, r * r - t * t));
+    return 0.5 * (t * s + r * r * std::asin(std::min(1.0, t / r)));
+}
+
+/** Area of the disk in the first-quadrant rectangle [0, x] × [0, y]. */
+static double quadDiskArea(double x, double y, double r)
+{
+    if (x <= 0.0 || y <= 0.0 || r <= 0.0)
+        return 0.0;
+    if (x > r)
+        x = r;
+    if (y > r)
+        y = r;
+    if (x * x + y * y <= r * r)
+        return x * y;
+    const double sy = std::sqrt(std::max(0.0, r * r - y * y));
+    if (sy >= x)
+        return x * y;
+    return y * sy + (integDiskUpper(x, r) - integDiskUpper(sy, r));
+}
+
+static double signedCornerDisk(double x, double y, double r)
+{
+    const double s = (x >= 0.0 ? 1.0 : -1.0) * (y >= 0.0 ? 1.0 : -1.0);
+    return s * quadDiskArea(std::fabs(x), std::fabs(y), r);
+}
+
+/** Area of disk radius r at the origin intersected with [x0,x1] × [y0,y1]. */
+static double diskRectArea(double r, double x0, double y0, double x1, double y1)
+{
+    if (r <= 0.0 || x1 <= x0 || y1 <= y0)
+        return 0.0;
+    return signedCornerDisk(x1, y1, r) - signedCornerDisk(x0, y1, r)
+         - signedCornerDisk(x1, y0, r) + signedCornerDisk(x0, y0, r);
+}
+
+/**
+ * Boundary cells of the unit-square tiling whose centers are the block coordinates.
+ * delta = (area of the square inside the annulus) − (1 if the center is inside the raster ring).
+ * Interior cells have delta 0 and are omitted. A fully cave ring sums lattice 49640 + these deltas
+ * back to kAnnulusArea.
+ */
+struct AnnulusTailCell {
+    int16_t dx;
+    int16_t dz;
+    double delta;
+};
+
+static const std::vector<AnnulusTailCell> &annulusTailCells()
+{
+    static const std::vector<AnnulusTailCell> cells = [] {
+        constexpr int R = 128;
+        constexpr int Rin = 24;
+        std::vector<AnnulusTailCell> out;
+        out.reserve(1400);
+        int latticeCount = 0;
+        double sumDelta = 0.0;
+        for (int dz = -R; dz <= R; ++dz)
+        {
+            for (int dx = -R; dx <= R; ++dx)
+            {
+                double w = diskRectArea(R, dx - 0.5, dz - 0.5, dx + 0.5, dz + 0.5)
+                         - diskRectArea(Rin, dx - 0.5, dz - 0.5, dx + 0.5, dz + 0.5);
+                if (w < 0.0)
+                    w = 0.0;
+                else if (w > 1.0)
+                    w = 1.0;
+                const int lattice = (dx * dx + dz * dz <= R * R && dx * dx + dz * dz > Rin * Rin) ? 1 : 0;
+                latticeCount += lattice;
+                const double delta = w - (double) lattice;
+                sumDelta += delta;
+                if (std::fabs(delta) < 1e-8)
+                    continue;
+                out.push_back(AnnulusTailCell{(int16_t) dx, (int16_t) dz, delta});
+            }
+        }
+        /* Fail closed: a bad table must not shift every score. */
+        if (latticeCount != 49640 || std::fabs((double) latticeCount + sumDelta - kAnnulusArea) > 1e-4)
+            out.clear();
+        return out;
+    }();
+    return cells;
+}
+
+/**
+ * Replace the block-center count with the exact annulus area.
+ * Lattice cells stay in sumC/sumR; only the circumference tail is reweighted by the real biome.
+ */
+static void applyAnnulusTail(
+    const std::vector<int> &rawRiver, const std::vector<int> &rawCave,
+    int W, int H, int cx, int cz, float riverWeight, int sumC, int sumR,
+    int &area, int &caveArea, int &riverArea)
+{
+    const auto &tail = annulusTailCells();
+    if (tail.empty())
+        return;
+
+    double cave = sumC / 3.0;
+    double river = sumR / 3.0;
+    for (const auto &cell : tail)
+    {
+        const int x = cx + (int) cell.dx;
+        const int z = cz + (int) cell.dz;
+        if ((unsigned) x >= (unsigned) W || (unsigned) z >= (unsigned) H)
+            continue;
+        const size_t idx = (size_t) x + (size_t) z * (size_t) W;
+        const double c = rawCave[idx] / 3.0;
+        const double rv = rawRiver[idx] / 3.0;
+        cave += c * cell.delta;
+        river += rv * cell.delta;
+    }
+    if (cave < 0.0)
+        cave = 0.0;
+    else if (cave > kAnnulusArea)
+        cave = kAnnulusArea;
+    if (river < 0.0)
+        river = 0.0;
+    else if (river > kAnnulusArea)
+        river = kAnnulusArea;
+
+    double total = cave + river * (double) riverWeight;
+    if (total < 0.0)
+        total = 0.0;
+    else if (total > kAnnulusArea)
+        total = kAnnulusArea;
+
+    const int cap = (int) std::llround(kAnnulusArea);
+    caveArea = std::min(cap, (int) std::llround(cave));
+    riverArea = std::min(cap, (int) std::llround(river));
+    area = std::min(cap, (int) std::llround(total));
+}
+
 static inline int coarseCellValue(Generator *g, int worldX, int worldZ, FilterMode mode)
 {
     const int nx = worldX / 4;
@@ -495,6 +637,23 @@ std::vector<Res> findBiggestRiver(
             if (f == 1.0) break;
         }
         pq.pop();
+    }
+
+    /* Precise results only: fold the circumference tail into the reported area
+     * before it leaves this function. Coarse passes keep the integer raster. */
+    if constexpr (scale == 1)
+    {
+        for (auto &r : result)
+        {
+            const int gx = r.point.x - startX;
+            const int gz = r.point.y - startZ;
+            if (gx < 0 || gz < 0 || gx >= W || gz >= H)
+                continue;
+            const int sumR = ringSum(prefixRiver, gx, gz);
+            const int sumC = ringSum(prefixCave, gx, gz);
+            applyAnnulusTail(rawRiver, rawCave, W, H, gx, gz, riverWeight, sumC, sumR,
+                             r.area, r.caveArea, r.riverArea);
+        }
     }
 
 #undef RAWR
