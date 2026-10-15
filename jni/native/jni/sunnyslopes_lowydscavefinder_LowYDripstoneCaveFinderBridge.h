@@ -10,10 +10,10 @@ extern "C" {
 /*
  * Class:     sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge
  * Method:    riverSearch
- * Signature: (JIIIIIIFFILjava/lang/String;II)[I
+ * Signature: (JIIIIIIFFILjava/lang/String;III)[I
  */
 JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge_riverSearch
-  (JNIEnv *, jclass, jlong, jint, jint, jint, jint, jint, jint, jfloat, jfloat, jint, jstring, jint, jint);
+  (JNIEnv *, jclass, jlong, jint, jint, jint, jint, jint, jint, jfloat, jfloat, jint, jstring, jint, jint, jint);
 
 /*
  * Class:     sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge

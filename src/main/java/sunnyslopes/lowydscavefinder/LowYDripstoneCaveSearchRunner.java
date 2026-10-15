@@ -26,6 +26,11 @@ public class LowYDripstoneCaveSearchRunner {
     public static final int PHASE1_CONT_SCALE_PRECISE = 32;
     public static final int PHASE1_WEIRD_SCALE_PRECISE = 16;
 
+    /** Native riverSearch mode: fast grid, precise grid, or full-map large-pit chains. */
+    public static final int SEARCH_MODE_FAST = 0;
+    public static final int SEARCH_MODE_PRECISE = 1;
+    public static final int SEARCH_MODE_FULL_MAP_PIT = 2;
+
     /** UI label for worlds without sulfur caves (cubiomes {@code 26.1}). */
     public static final String MC_RANGE_PRE_SULFUR = "1.18~26.1";
     /** UI label for worlds with sulfur caves (cubiomes {@code 26.3}). */
@@ -209,12 +214,13 @@ public class LowYDripstoneCaveSearchRunner {
     /** Start river search for one seed. Runs in background thread. Returns false if another search is still active. */
     public boolean startRiverSearch(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
                                  float riverWeight, int threadCount, boolean fastMode, String mcVersion,
+                                 int searchMode,
                                  Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         if (!tryAcquireActiveRunner()) {
             return false;
         }
         Thread t = new Thread(() -> runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount,
-                fastMode, mcVersion, progressCallback, resultCallback),
+                fastMode, mcVersion, searchMode, progressCallback, resultCallback),
             "lowydripstonecavefinder-search");
         t.setDaemon(true);
         t.start();
@@ -224,12 +230,13 @@ public class LowYDripstoneCaveSearchRunner {
     /** Run river search for one seed on the current thread (for list search). Returns false if another search is still active. */
     public boolean runRiverSearchBlocking(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
                                        float riverWeight, int threadCount, boolean fastMode, String mcVersion,
+                                       int searchMode,
                                        Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         if (!tryAcquireActiveRunner()) {
             return false;
         }
         runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode, mcVersion,
-                progressCallback, resultCallback);
+                searchMode, progressCallback, resultCallback);
         return true;
     }
 
@@ -253,6 +260,7 @@ public class LowYDripstoneCaveSearchRunner {
 
     private void runRiverSearch(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
                                float riverWeight, int threadCount, boolean fastMode, String mcVersion,
+                               int searchMode,
                                Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         isRunning = true;
         isPaused = false;
@@ -286,6 +294,7 @@ public class LowYDripstoneCaveSearchRunner {
         AtomicLong lastTotal = new AtomicLong(0);
         /** Elapsed ms at the moment phase 2 was first observed (for per-phase ETA). */
         AtomicLong phase2StartElapsedMs = new AtomicLong(-1L);
+        AtomicLong phase3StartElapsedMs = new AtomicLong(-1L);
 
         ScheduledExecutorService progressScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "lowydripstonecavefinder-progress");
@@ -340,6 +349,16 @@ public class LowYDripstoneCaveSearchRunner {
                     total = Math.max(tot, 1L);
                     refining = true;
                     phaseElapsedForEta = Math.max(0L, elapsed - Math.max(0L, p2Start));
+                } else if (nPhase == 3) {
+                    if (tot <= 0) {
+                        return;
+                    }
+                    phase3StartElapsedMs.compareAndSet(-1L, elapsed);
+                    long p3Start = phase3StartElapsedMs.get();
+                    processed = cur;
+                    total = Math.max(tot, 1L);
+                    refining = true;
+                    phaseElapsedForEta = Math.max(0L, elapsed - Math.max(0L, p3Start));
                 } else if (nPhase == -1) {
                     processed = lastProcessed.get();
                     total = Math.max(Math.max(lastTotal.get(), processed), 1L);
@@ -371,12 +390,16 @@ public class LowYDripstoneCaveSearchRunner {
             /* Fast mode: 0 → native SearchConfig defaults (Cont@128 + Weird@32), same as pre-UI path. */
             int contScale = fastMode ? 0 : PHASE1_CONT_SCALE_PRECISE;
             int weirdScale = fastMode ? 0 : PHASE1_WEIRD_SCALE_PRECISE;
+            int mode = searchMode;
+            if (mode != SEARCH_MODE_FAST && mode != SEARCH_MODE_PRECISE && mode != SEARCH_MODE_FULL_MAP_PIT) {
+                mode = fastMode ? SEARCH_MODE_FAST : SEARCH_MODE_PRECISE;
+            }
             String uiMc = (mcVersion == null || mcVersion.isBlank()) ? DEFAULT_MC_VERSION : mcVersion.trim();
             String mc = toCubiomesMcVersion(uiMc);
             int[] raw;
             synchronized (NATIVE_LOCK) {
                 raw = LowYDripstoneCaveFinderBridge.riverSearch(seed, startX, startZ, width, height, 0, minArea,
-                    DEFAULT_PRESERVE_RANGE, weight, threads, mc, contScale, weirdScale);
+                    DEFAULT_PRESERVE_RANGE, weight, threads, mc, contScale, weirdScale, mode);
             }
 
             if (raw != null && resultCallback != null) {
@@ -385,9 +408,14 @@ public class LowYDripstoneCaveSearchRunner {
                 for (int[] row : filterResultsForOutput(raw)) {
                     int x = row[0], z = row[1], total = row[2], cave = row[3], river = row[4];
                     double ratioPercent = total / RIVER_AREA_FULL * 100.0;
-                    sb.append(String.format("/tp %d 64 %d s=%d/%d = %.2f%% cave=%d river=%d",
-                        x, z, total, fullAreaInt, ratioPercent, cave, river))
-                        .append('\n');
+                    if (mode == SEARCH_MODE_FULL_MAP_PIT) {
+                        sb.append(String.format("/tp %d 64 %d s=%d/%d = %.2f%%",
+                            x, z, total, fullAreaInt, ratioPercent));
+                    } else {
+                        sb.append(String.format("/tp %d 64 %d s=%d/%d = %.2f%% cave=%d river=%d",
+                            x, z, total, fullAreaInt, ratioPercent, cave, river));
+                    }
+                    sb.append('\n');
                 }
                 if (sb.length() > 0) {
                     resultCallback.accept(sb.toString());
