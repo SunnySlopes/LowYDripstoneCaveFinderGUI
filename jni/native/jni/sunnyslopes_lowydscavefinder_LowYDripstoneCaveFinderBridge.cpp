@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../../dripstonecave_finder.cpp"
+#include "../../LargePitSearch.cpp"
 #include "../../OctaveFieldCache.h"
 #include "cubiomes/util.h"
 
@@ -60,7 +61,7 @@ static void applyPreserveRange(std::vector<Res> &res, float opV)
 JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge_riverSearch
   (JNIEnv *env, jclass, jlong seed, jint startX, jint startZ,
    jint width, jint height, jint /*y*/, jint minArea, jfloat opV, jfloat riverWeight, jint numThreads,
-   jstring mcVersion, jint contScale, jint weirdScale)
+   jstring mcVersion, jint contScale, jint weirdScale, jint searchMode)
 {
     std::lock_guard<std::mutex> guard(searchMutex);
 
@@ -89,6 +90,52 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
 
     int threads = numThreads > 0 ? numThreads : static_cast<int>(std::thread::hardware_concurrency());
     if (threads < 1) threads = 1;
+
+    /* searchMode 2: large-pit search. Chains still cover the world; results are clipped to the requested box. */
+    if (searchMode == 2)
+    {
+        (void) opV;
+        (void) contScale;
+        (void) weirdScale;
+        const int boxMinX = startX + 128;
+        const int boxMaxX = startX + width - 1 - 128;
+        const int boxMinZ = startZ + 128;
+        const int boxMaxZ = startZ + height - 1 - 128;
+        std::vector<Res> finallyResults;
+        try {
+            finallyResults = runLargePitSearch(&g, minArea, riverWeight, threads, &progress,
+                                               boxMinX, boxMaxX, boxMinZ, boxMaxZ);
+        } catch (const std::bad_alloc &) {
+            resetProgressState();
+            return nullptr;
+        } catch (const std::exception &) {
+            resetProgressState();
+            return nullptr;
+        }
+        if (progress.try_stop.load()) {
+            resetProgressState();
+            return nullptr;
+        }
+        std::ranges::sort(finallyResults, [](const Res &a, const Res &b) { return a.area > b.area; });
+        finallyResults = dedup(finallyResults);
+        progress.phase1.store(-1);
+        if (finallyResults.empty()) {
+            resetProgressState();
+            return nullptr;
+        }
+        std::vector<jint> results;
+        results.reserve(finallyResults.size() * 5);
+        for (const auto &item: finallyResults)
+            appendResult(results, item);
+        jintArray jResults = env->NewIntArray(static_cast<jsize>(results.size()));
+        if (!jResults) {
+            resetProgressState();
+            return nullptr;
+        }
+        env->SetIntArrayRegion(jResults, 0, static_cast<jsize>(results.size()), results.data());
+        resetProgressState();
+        return jResults;
+    }
 
     /* Phase 0: Cont/Ridge A period tables for large searches (full-map tab). */
     const long long userW = (long long) width - 2LL * 128;
@@ -283,7 +330,7 @@ JNIEXPORT jintArray JNICALL Java_sunnyslopes_lowydscavefinder_LowYDripstoneCaveF
         status = progress.chunkInRunning.load() == 0 ? 1 : 0;
     else if (phase == 1)
         status = progress.chunkInRunning.load() == 0 ? 1 : 0;
-    else if (phase == 2)
+    else if (phase == 2 || phase == 3)
         status = cur >= tot ? 2 : 1;
 
     jint data[6] = {

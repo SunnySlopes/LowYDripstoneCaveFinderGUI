@@ -52,6 +52,10 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private static final double MIN_RIVER_RATIO_UI_PRECISE = MIN_RIVER_AREA_UI_PRECISE / RIVER_AREA_FULL * 100.0;
     private static final double DEFAULT_RIVER_RATIO_UI = DEFAULT_RIVER_AREA_UI / RIVER_AREA_FULL * 100.0;
     private static final double MAX_RIVER_RATIO_UI = MAX_RIVER_AREA_UI / RIVER_AREA_FULL * 100.0;
+    private static final int MIN_PIT_AREA_UI = (int) (RIVER_AREA_FULL * 0.80);
+    private static final int DEFAULT_PIT_AREA_UI = (int) (RIVER_AREA_FULL * 0.90);
+    private static final double MIN_PIT_RATIO_UI = MIN_PIT_AREA_UI / RIVER_AREA_FULL * 100.0;
+    private static final double DEFAULT_PIT_RATIO_UI = DEFAULT_PIT_AREA_UI / RIVER_AREA_FULL * 100.0;
     private static final float DEFAULT_RIVER_WEIGHT_UI = 0.75f;
 
     // 单种子搜索相关组件
@@ -167,6 +171,50 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     // 存储每个种子的结果
     private final Map<Long, List<String>> seedResults = new HashMap<>();
 
+    private JLabel pitSeedLabel;
+    private JLabel pitThreadCountLabel;
+    private JLabel pitMinRiverAreaLabel;
+    private JLabel pitMinRiverRatioLabel;
+    private JLabel pitMcVersionLabel;
+    private JLabel pitLanguageLabel;
+    private JLabel pitMinXLabel;
+    private JLabel pitMaxXLabel;
+    private JLabel pitMinZLabel;
+    private JLabel pitMaxZLabel;
+    private JTextField pitSeedField;
+    private JTextField pitThreadCountField;
+    private JTextField pitMinRiverAreaField;
+    private JTextField pitMinRiverRatioField;
+    private JTextField pitMinXField;
+    private JTextField pitMaxXField;
+    private JTextField pitMinZField;
+    private JTextField pitMaxZField;
+    private JCheckBox pitSquareSideCheckBox;
+    private JTextField pitSquareSideField;
+    private boolean pitSquareSideUpdating = false;
+    private JComboBox<String> pitMcVersionComboBox;
+    private JComboBox<String> pitLanguageComboBox;
+    private boolean pitRiverParamUpdating = false;
+    private boolean pitLanguageUpdating = false;
+    private JButton pitStartButton;
+    private JButton pitPauseButton;
+    private JButton pitStopButton;
+    private JButton pitResetButton;
+    private JButton pitResetCoordinatesButton;
+    private JTabbedPane tabbedPane;
+    private JButton pitExportButton;
+    private JButton pitSortButton;
+    private JProgressBar pitProgressBar;
+    private JLabel pitElapsedTimeLabel;
+    private JLabel pitRemainingTimeLabel;
+    private JLabel pitCreditLabel;
+    private JPanel pitRightPanel;
+    private JTextArea pitResultArea;
+    private LowYDripstoneCaveSearchRunner pitSearchRunner;
+    private volatile boolean isPitSearchRunning = false;
+    private volatile boolean isPitSearchPaused = false;
+    private final AtomicLong pitSearchResultToken = new AtomicLong(0);
+
 
     // 加载的字体
     private Font loadedFont = null;
@@ -206,9 +254,10 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         setChineseFont();
 
         // 创建标签页
-        JTabbedPane tabbedPane = new JTabbedPane();
+        tabbedPane = new JTabbedPane();
         tabbedPane.addTab(getString("tab.singleSeedSearch"), createSingleSeedSearchPanel());
         tabbedPane.addTab(getString("tab.listSearch"), createListSearchPanel());
+        tabbedPane.addTab(getString("tab.fullMapPitSearch"), createFullMapPitSearchPanel());
         add(tabbedPane, BorderLayout.CENTER);
 
         pack();
@@ -983,6 +1032,799 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchResultArea.setText(sb.toString());
     }
 
+    private String buildPitCreditHtml() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(getString("hint.fullMapPitRatio")).append("<br>");
+        sb.append(getString("hint.outputHint"));
+        return sb.toString();
+    }
+
+    private JPanel createFullMapPitSearchPanel() {
+        JPanel mainPanel = new JPanel(new BorderLayout());
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        JPanel leftPanel = new JPanel(new BorderLayout());
+        JPanel inputPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        pitSeedLabel = new JLabel(getString("label.seed"));
+        pitSeedLabel.setFont(getLoadedFont());
+        inputPanel.add(pitSeedLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        pitSeedField = new JTextField(20);
+        pitSeedField.setFont(getLoadedFont());
+        pitSeedField.addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusLost(java.awt.event.FocusEvent e) {
+                validateIntegerInput(pitSeedField, getString("label.seed").replace(":", ""));
+            }
+        });
+        inputPanel.add(pitSeedField, gbc);
+
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        pitThreadCountLabel = new JLabel(getString("label.threadCount"));
+        pitThreadCountLabel.setFont(getLoadedFont());
+        inputPanel.add(pitThreadCountLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        pitThreadCountField = new JTextField(String.valueOf(Runtime.getRuntime().availableProcessors()), 20);
+        pitThreadCountField.addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusLost(java.awt.event.FocusEvent e) {
+                validateIntegerInput(pitThreadCountField, getString("label.threadCount").replace(":", ""));
+            }
+        });
+        inputPanel.add(pitThreadCountField, gbc);
+
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        pitMinRiverAreaLabel = new JLabel(getString("label.minRiverArea"));
+        pitMinRiverAreaLabel.setFont(getLoadedFont());
+        inputPanel.add(pitMinRiverAreaLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        pitMinRiverAreaField = new JTextField(String.valueOf(DEFAULT_PIT_AREA_UI), 20);
+        pitMinRiverAreaField.addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusLost(java.awt.event.FocusEvent e) {
+                syncPitRatioFromArea();
+            }
+        });
+        inputPanel.add(pitMinRiverAreaField, gbc);
+
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        pitMinRiverRatioLabel = new JLabel(getString("label.minRiverRatio"));
+        pitMinRiverRatioLabel.setFont(getLoadedFont());
+        inputPanel.add(pitMinRiverRatioLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        pitMinRiverRatioField = new JTextField(String.format("%.2f", DEFAULT_PIT_RATIO_UI), 20);
+        pitMinRiverRatioField.addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusLost(java.awt.event.FocusEvent e) {
+                syncPitAreaFromRatio();
+            }
+        });
+        inputPanel.add(pitMinRiverRatioField, gbc);
+
+        addPitBoundRow(inputPanel, gbc, 4, "label.minX", BOUNDARY_MIN_X);
+        addPitBoundRow(inputPanel, gbc, 5, "label.maxX", BOUNDARY_MAX_X);
+        addPitBoundRow(inputPanel, gbc, 6, "label.minZ", BOUNDARY_MIN_Z);
+        addPitBoundRow(inputPanel, gbc, 7, "label.maxZ", BOUNDARY_MAX_Z);
+
+        gbc.gridx = 0;
+        gbc.gridy = 8;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        pitSquareSideCheckBox = new JCheckBox(getString("label.squareSide"));
+        pitSquareSideCheckBox.setFont(getLoadedFont());
+        inputPanel.add(pitSquareSideCheckBox, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        long pitDefaultSide = (long) BOUNDARY_MAX_X - BOUNDARY_MIN_X + 1;
+        pitSquareSideField = new JTextField(String.valueOf(pitDefaultSide), 20);
+        pitSquareSideCheckBox.setSelected(true);
+        pitSquareSideCheckBox.addActionListener(e -> onPitSquareSideModeToggled());
+        pitSquareSideField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                applyPitSquareSideToBounds();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                applyPitSquareSideToBounds();
+            }
+
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                applyPitSquareSideToBounds();
+            }
+        });
+        pitSquareSideField.addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusLost(java.awt.event.FocusEvent e) {
+                validateIntegerInput(pitSquareSideField, getString("label.squareSide").replace(":", ""));
+            }
+        });
+        inputPanel.add(pitSquareSideField, gbc);
+        applyPitBoundFieldEnableState(true);
+        applyPitSquareSideToBounds();
+
+        gbc.gridx = 0;
+        gbc.gridy = 9;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        pitMcVersionLabel = new JLabel(getString("label.mcVersion"));
+        pitMcVersionLabel.setFont(getLoadedFont());
+        inputPanel.add(pitMcVersionLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        pitMcVersionComboBox = new JComboBox<>(SUPPORTED_MC_VERSIONS);
+        pitMcVersionComboBox.setSelectedItem(DEFAULT_MC_VERSION);
+        pitMcVersionComboBox.setFont(getLoadedFont());
+        inputPanel.add(pitMcVersionComboBox, gbc);
+
+        gbc.gridx = 0;
+        gbc.gridy = 10;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        pitLanguageLabel = new JLabel(getString("label.language"));
+        pitLanguageLabel.setFont(getLoadedFont());
+        inputPanel.add(pitLanguageLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        pitLanguageComboBox = new JComboBox<>(new String[]{"中文", "English"});
+        pitLanguageComboBox.setSelectedIndex(currentLocale.getLanguage().equals("zh") ? 0 : 1);
+        pitLanguageComboBox.addActionListener(e -> {
+            if (pitLanguageUpdating || languageComboBox == null || pitLanguageComboBox == null) {
+                return;
+            }
+            int idx = pitLanguageComboBox.getSelectedIndex();
+            if (idx >= 0 && languageComboBox.getSelectedIndex() != idx) {
+                languageComboBox.setSelectedIndex(idx);
+            }
+        });
+        inputPanel.add(pitLanguageComboBox, gbc);
+
+        JPanel buttonPanel = new JPanel(new FlowLayout());
+        pitStartButton = new JButton(getString("button.startSearch"));
+        pitPauseButton = new JButton(getString("button.pause"));
+        pitStopButton = new JButton(getString("button.stop"));
+        pitResetButton = new JButton(getString("button.reset"));
+        pitResetCoordinatesButton = new JButton(getString("button.resetToWorldBorder"));
+        pitPauseButton.setEnabled(false);
+        pitStopButton.setEnabled(false);
+        buttonPanel.add(pitStartButton);
+        buttonPanel.add(pitPauseButton);
+        buttonPanel.add(pitStopButton);
+        buttonPanel.add(pitResetButton);
+        buttonPanel.add(pitResetCoordinatesButton);
+
+        JPanel creditPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        creditPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        pitCreditLabel = new JLabel(getString("credit.text", buildPitCreditHtml()));
+        pitCreditLabel.setFont(getLoadedFont());
+        creditPanel.add(pitCreditLabel);
+
+        JPanel creditButtonPanel = new JPanel(new BorderLayout());
+        creditButtonPanel.add(creditPanel, BorderLayout.NORTH);
+        creditButtonPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        JPanel progressPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints pgc = new GridBagConstraints();
+        pgc.insets = new Insets(5, 5, 5, 5);
+        pgc.anchor = GridBagConstraints.WEST;
+        pgc.fill = GridBagConstraints.HORIZONTAL;
+        pgc.weightx = 1.0;
+        pgc.gridx = 0;
+        pgc.gridy = 0;
+        pgc.gridwidth = 2;
+        pitProgressBar = new JProgressBar(0, 100);
+        pitProgressBar.setStringPainted(true);
+        pitProgressBar.setString(getString("progress.format", 0, 0, 0.0));
+        progressPanel.add(pitProgressBar, pgc);
+        pgc.gridwidth = 1;
+        pgc.gridy = 1;
+        pitElapsedTimeLabel = new JLabel(getString("elapsedTime", formatTime(0)));
+        progressPanel.add(pitElapsedTimeLabel, pgc);
+        pgc.gridy = 3;
+        pitRemainingTimeLabel = new JLabel(getString("remainingTime.calculating"));
+        progressPanel.add(pitRemainingTimeLabel, pgc);
+
+        leftPanel.add(inputPanel, BorderLayout.NORTH);
+        leftPanel.add(creditButtonPanel, BorderLayout.CENTER);
+        JPanel leftBottomPanel = new JPanel(new BorderLayout());
+        leftBottomPanel.add(progressPanel, BorderLayout.NORTH);
+        JPanel leftContainer = new JPanel(new BorderLayout());
+        leftContainer.add(leftPanel, BorderLayout.CENTER);
+        leftContainer.add(leftBottomPanel, BorderLayout.SOUTH);
+
+        pitRightPanel = new JPanel(new BorderLayout());
+        pitRightPanel.setBorder(BorderFactory.createTitledBorder(getString("result.pitBorder")));
+        pitResultArea = new JTextArea();
+        pitResultArea.setEditable(false);
+        pitResultArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        JScrollPane scrollPane = new JScrollPane(pitResultArea);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+        JPanel exportSortPanel = new JPanel(new FlowLayout());
+        pitExportButton = new JButton(getString("button.export"));
+        pitExportButton.addActionListener(e -> exportPitResults());
+        pitSortButton = new JButton(getString("button.sort"));
+        pitSortButton.addActionListener(e -> sortPitResults());
+        exportSortPanel.add(pitExportButton);
+        exportSortPanel.add(pitSortButton);
+        pitRightPanel.add(scrollPane, BorderLayout.CENTER);
+        pitRightPanel.add(exportSortPanel, BorderLayout.SOUTH);
+
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftContainer, pitRightPanel);
+        splitPane.setDividerLocation(600);
+        splitPane.setResizeWeight(0.5);
+        mainPanel.add(splitPane, BorderLayout.CENTER);
+
+        pitStartButton.addActionListener(e -> startPitSearch());
+        pitPauseButton.addActionListener(e -> togglePitPause());
+        pitStopButton.addActionListener(e -> stopPitSearch());
+        pitResetButton.addActionListener(e -> resetPitDefaults());
+        pitResetCoordinatesButton.addActionListener(e -> resetPitCoordinatesToWorldBorder());
+        return mainPanel;
+    }
+
+    private void addPitBoundRow(JPanel inputPanel, GridBagConstraints gbc, int row, String labelKey, int initial) {
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        JLabel label = new JLabel(getString(labelKey));
+        label.setFont(getLoadedFont());
+        inputPanel.add(label, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        JTextField field = new JTextField(String.valueOf(initial), 20);
+        field.addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusLost(java.awt.event.FocusEvent e) {
+                validateIntegerInput(field, getString(labelKey).replace(":", ""));
+            }
+        });
+        inputPanel.add(field, gbc);
+        if ("label.minX".equals(labelKey)) {
+            pitMinXLabel = label;
+            pitMinXField = field;
+        } else if ("label.maxX".equals(labelKey)) {
+            pitMaxXLabel = label;
+            pitMaxXField = field;
+        } else if ("label.minZ".equals(labelKey)) {
+            pitMinZLabel = label;
+            pitMinZField = field;
+        } else {
+            pitMaxZLabel = label;
+            pitMaxZField = field;
+        }
+    }
+
+    private void syncPitRatioFromArea() {
+        if (pitRiverParamUpdating || pitMinRiverAreaField == null || pitMinRiverRatioField == null) return;
+        try {
+            int area = Integer.parseInt(pitMinRiverAreaField.getText().trim());
+            area = Math.max(MIN_PIT_AREA_UI, Math.min(MAX_RIVER_AREA_UI, area));
+            double ratio = RIVER_AREA_FULL > 0 ? (area / RIVER_AREA_FULL * 100.0) : 0;
+            ratio = Math.max(MIN_PIT_RATIO_UI, Math.min(MAX_RIVER_RATIO_UI, ratio));
+            pitRiverParamUpdating = true;
+            pitMinRiverRatioField.setText(String.format("%.2f", ratio));
+            pitMinRiverAreaField.setText(String.valueOf(area));
+        } catch (NumberFormatException ignored) {
+        } finally {
+            pitRiverParamUpdating = false;
+        }
+    }
+
+    private void syncPitAreaFromRatio() {
+        if (pitRiverParamUpdating || pitMinRiverAreaField == null || pitMinRiverRatioField == null) return;
+        try {
+            double ratio = Double.parseDouble(pitMinRiverRatioField.getText().trim());
+            ratio = Math.max(MIN_PIT_RATIO_UI, Math.min(MAX_RIVER_RATIO_UI, ratio));
+            int area = (int) Math.round(RIVER_AREA_FULL * ratio / 100.0);
+            area = Math.max(MIN_PIT_AREA_UI, Math.min(MAX_RIVER_AREA_UI, area));
+            pitRiverParamUpdating = true;
+            pitMinRiverAreaField.setText(String.valueOf(area));
+            pitMinRiverRatioField.setText(String.format("%.2f", ratio));
+        } catch (NumberFormatException ignored) {
+        } finally {
+            pitRiverParamUpdating = false;
+        }
+    }
+
+    private Integer parsePitBound(JTextField field, String integerKey, String formatKey, int resetValue) {
+        if (field == null) {
+            return resetValue;
+        }
+        try {
+            double value = Double.parseDouble(field.getText().trim());
+            if (value != Math.floor(value) || value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+                JOptionPane.showMessageDialog(this, getString(integerKey), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                field.setText(String.valueOf(resetValue));
+                return null;
+            }
+            return (int) value;
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, getString(formatKey), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+            field.setText(String.valueOf(resetValue));
+            return null;
+        }
+    }
+
+    /** 0 = switch to fast search, 1 = stay and search, -1 = dismissed. */
+    private int askFastSearch(boolean lowerChance) {
+        Object[] options = {getString("dialog.fastSearch.try"), getString("dialog.fastSearch.stay")};
+        String messageKey = lowerChance ? "dialog.fastSearch.messageLow" : "dialog.fastSearch.message";
+        return JOptionPane.showOptionDialog(this, getString(messageKey), getString("prompt.information"),
+                JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+    }
+
+    private void openFastSearchWithSingleSeedInputs(long seed, int threadCount, int minX, int maxX, int minZ, int maxZ) {
+        if (pitSeedField != null) {
+            pitSeedField.setText(Long.toString(seed));
+        }
+        if (pitThreadCountField != null) {
+            pitThreadCountField.setText(String.valueOf(threadCount));
+        }
+        if (pitMcVersionComboBox != null && searchMcVersionComboBox != null) {
+            pitMcVersionComboBox.setSelectedIndex(searchMcVersionComboBox.getSelectedIndex());
+        }
+        boolean square = squareSideCheckBox != null && squareSideCheckBox.isSelected();
+        pitSquareSideUpdating = true;
+        try {
+            if (pitSquareSideCheckBox != null) {
+                pitSquareSideCheckBox.setSelected(square);
+            }
+            if (square && pitSquareSideField != null && squareSideField != null) {
+                pitSquareSideField.setText(squareSideField.getText().trim());
+            }
+        } finally {
+            pitSquareSideUpdating = false;
+        }
+        if (square) {
+            applyPitSquareSideToBounds();
+        } else {
+            if (pitMinXField != null) pitMinXField.setText(String.valueOf(minX));
+            if (pitMaxXField != null) pitMaxXField.setText(String.valueOf(maxX));
+            if (pitMinZField != null) pitMinZField.setText(String.valueOf(minZ));
+            if (pitMaxZField != null) pitMaxZField.setText(String.valueOf(maxZ));
+        }
+        applyPitBoundFieldEnableState(true);
+        if (pitMinRiverAreaField != null) {
+            pitMinRiverAreaField.setText(String.valueOf(DEFAULT_PIT_AREA_UI));
+        }
+        if (pitMinRiverRatioField != null) {
+            pitMinRiverRatioField.setText(String.format("%.2f", DEFAULT_PIT_RATIO_UI));
+        }
+        if (tabbedPane != null && tabbedPane.getTabCount() > 2) {
+            tabbedPane.setSelectedIndex(2);
+        }
+    }
+
+    private int parsePitMinArea() {
+        if (pitMinRiverAreaField == null) return -1;
+        try {
+            int a = Integer.parseInt(pitMinRiverAreaField.getText().trim());
+            return a >= MIN_PIT_AREA_UI && a <= MAX_RIVER_AREA_UI ? a : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private void resetPitDefaults() {
+        if (pitMinRiverAreaField != null) {
+            pitMinRiverAreaField.setText(String.valueOf(DEFAULT_PIT_AREA_UI));
+        }
+        if (pitMinRiverRatioField != null) {
+            pitMinRiverRatioField.setText(String.format("%.2f", DEFAULT_PIT_RATIO_UI));
+        }
+        resetPitCoordinatesToWorldBorder();
+        if (pitResultArea != null) {
+            pitResultArea.setText("");
+        }
+    }
+
+    private void resetPitCoordinatesToWorldBorder() {
+        long side = (long) BOUNDARY_MAX_X - BOUNDARY_MIN_X + 1;
+        pitSquareSideUpdating = true;
+        try {
+            if (pitSquareSideCheckBox != null) {
+                pitSquareSideCheckBox.setSelected(true);
+            }
+            if (pitSquareSideField != null) {
+                pitSquareSideField.setText(String.valueOf(side));
+            }
+        } finally {
+            pitSquareSideUpdating = false;
+        }
+        applyPitSquareSideToBounds();
+        applyPitBoundFieldEnableState(!isPitSearchRunning);
+    }
+
+    private void onPitSquareSideModeToggled() {
+        applyPitBoundFieldEnableState(!isPitSearchRunning);
+        if (pitSquareSideCheckBox != null && pitSquareSideCheckBox.isSelected()) {
+            applyPitSquareSideToBounds();
+        }
+    }
+
+    private void applyPitBoundFieldEnableState(boolean allowEdit) {
+        boolean squareMode = pitSquareSideCheckBox != null && pitSquareSideCheckBox.isSelected();
+        if (pitSquareSideCheckBox != null) {
+            pitSquareSideCheckBox.setEnabled(allowEdit);
+        }
+        if (pitSquareSideField != null) {
+            pitSquareSideField.setEnabled(allowEdit && squareMode);
+        }
+        boolean boundsEditable = allowEdit && !squareMode;
+        if (pitMinXField != null) pitMinXField.setEnabled(boundsEditable);
+        if (pitMaxXField != null) pitMaxXField.setEnabled(boundsEditable);
+        if (pitMinZField != null) pitMinZField.setEnabled(boundsEditable);
+        if (pitMaxZField != null) pitMaxZField.setEnabled(boundsEditable);
+    }
+
+    /** Fill the fast-search min/max from the square side, centered at (0, 0). */
+    private void applyPitSquareSideToBounds() {
+        if (pitSquareSideUpdating || pitSquareSideCheckBox == null || !pitSquareSideCheckBox.isSelected()) {
+            return;
+        }
+        if (pitSquareSideField == null || pitMinXField == null) {
+            return;
+        }
+        String text = pitSquareSideField.getText().trim();
+        if (text.isEmpty()) {
+            return;
+        }
+        try {
+            long side = Long.parseLong(text);
+            if (side < 1) {
+                return;
+            }
+            long min = -side / 2;
+            long max = min + side - 1;
+            if (min < Integer.MIN_VALUE || max > Integer.MAX_VALUE) {
+                return;
+            }
+            pitSquareSideUpdating = true;
+            pitMinXField.setText(String.valueOf((int) min));
+            pitMaxXField.setText(String.valueOf((int) max));
+            pitMinZField.setText(String.valueOf((int) min));
+            pitMaxZField.setText(String.valueOf((int) max));
+            pitSquareSideUpdating = false;
+        } catch (NumberFormatException ignored) {
+        }
+    }
+
+    private void startPitSearch() {
+        if (isPitSearchRunning && isPitSearchPaused) {
+            if (pitSearchRunner != null) {
+                pitSearchRunner.resume();
+                isPitSearchPaused = false;
+                pitPauseButton.setText(getString("button.pause"));
+            }
+            return;
+        }
+        if (LowYDripstoneCaveSearchRunner.isAnySearchActive()) {
+            JOptionPane.showMessageDialog(this, getString("error.searchBusy"), getString("prompt.error"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        try {
+            String seedText = pitSeedField.getText().trim();
+            if (seedText.isEmpty()) {
+                JOptionPane.showMessageDialog(this, getString("error.seedRequired"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            long seed;
+            try {
+                double seedDouble = Double.parseDouble(seedText);
+                if (seedDouble != Math.floor(seedDouble)) {
+                    JOptionPane.showMessageDialog(this, getString("error.seedMustBeInteger"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                seed = Long.parseLong(seedText);
+            } catch (NumberFormatException e) {
+                JOptionPane.showMessageDialog(this, getString("error.seedFormatError"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            int threadCount;
+            try {
+                double threadDouble = Double.parseDouble(pitThreadCountField.getText().trim());
+                if (threadDouble != Math.floor(threadDouble)) {
+                    JOptionPane.showMessageDialog(this, getString("error.threadCountMustBeInteger"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                threadCount = (int) threadDouble;
+            } catch (NumberFormatException e) {
+                JOptionPane.showMessageDialog(this, getString("error.threadCountFormatError"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (threadCount < 1) {
+                JOptionPane.showMessageDialog(this, getString("error.threadCountRequired"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            int cpuThreads = Runtime.getRuntime().availableProcessors();
+            if (threadCount > cpuThreads) {
+                int result = JOptionPane.showConfirmDialog(this,
+                        getString("error.threadCountExceedsCPU", cpuThreads, cpuThreads),
+                        getString("prompt.adjustThreadCount"),
+                        JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+                if (result == JOptionPane.YES_OPTION) {
+                    threadCount = cpuThreads;
+                    pitThreadCountField.setText(String.valueOf(cpuThreads));
+                } else {
+                    return;
+                }
+            }
+
+            int minArea = parsePitMinArea();
+            if (minArea < 0) {
+                JOptionPane.showMessageDialog(this, getString("error.minRiverAreaInvalid"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            Integer minX = parsePitBound(pitMinXField, "error.minXMustBeInteger", "error.minXFormatError", BOUNDARY_MIN_X);
+            Integer maxX = parsePitBound(pitMaxXField, "error.maxXMustBeInteger", "error.maxXFormatError", BOUNDARY_MAX_X);
+            Integer minZ = parsePitBound(pitMinZField, "error.minZMustBeInteger", "error.minZFormatError", BOUNDARY_MIN_Z);
+            Integer maxZ = parsePitBound(pitMaxZField, "error.maxZMustBeInteger", "error.maxZFormatError", BOUNDARY_MAX_Z);
+            if (minX == null || maxX == null || minZ == null || maxZ == null) {
+                return;
+            }
+            if (minX >= maxX) {
+                JOptionPane.showMessageDialog(this, getString("error.minXGreaterThanMaxX"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (minZ >= maxZ) {
+                JOptionPane.showMessageDialog(this, getString("error.minZGreaterThanMaxZ"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            long searchArea = (long) maxX - minX + 1L;
+            searchArea *= (long) maxZ - minZ + 1L;
+            if (searchArea > LowYDripstoneCaveSearchRunner.MAX_SEARCH_AREA_BLOCKS) {
+                JOptionPane.showMessageDialog(this, getString("error.searchAreaTooLarge"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            boolean outOfBounds = minX < BOUNDARY_MIN_X || maxX > BOUNDARY_MAX_X || minZ < BOUNDARY_MIN_Z || maxZ > BOUNDARY_MAX_Z;
+            if (outOfBounds) {
+                int result = JOptionPane.showConfirmDialog(this, getString("error.outOfBounds"), getString("prompt.warning"),
+                        JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (result != JOptionPane.YES_OPTION) {
+                    return;
+                }
+            }
+            isPitSearchRunning = true;
+            isPitSearchPaused = false;
+            setPitControlsEnabled(false);
+            pitPauseButton.setEnabled(true);
+            pitPauseButton.setText(getString("button.pause"));
+            pitStopButton.setEnabled(true);
+            final long resultToken = pitSearchResultToken.incrementAndGet();
+            pitResultArea.setText("");
+            pitProgressBar.setIndeterminate(true);
+            pitProgressBar.setValue(0);
+            pitProgressBar.setString(getString("remainingTime.calculating"));
+            pitElapsedTimeLabel.setText(getString("elapsedTime", formatTime(0)));
+            pitRemainingTimeLabel.setText(getString("remainingTime.calculating"));
+
+            pitSearchRunner = new LowYDripstoneCaveSearchRunner();
+            if (!pitSearchRunner.startRiverSearch(seed, minX, maxX, minZ, maxZ,
+                    minArea, 0f, threadCount, false, selectedMcVersion(pitMcVersionComboBox),
+                    LowYDripstoneCaveSearchRunner.SEARCH_MODE_FULL_MAP_PIT,
+                    info -> updatePitSearchProgress(resultToken, info),
+                    line -> addPitResult(resultToken, line))) {
+                isPitSearchRunning = false;
+                setPitControlsEnabled(true);
+                JOptionPane.showMessageDialog(this, getString("error.searchBusy"), getString("prompt.error"), JOptionPane.WARNING_MESSAGE);
+            }
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, getString("error.invalidNumber"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void setPitControlsEnabled(boolean enabled) {
+        isPitSearchRunning = !enabled ? isPitSearchRunning : false;
+        if (enabled) {
+            isPitSearchPaused = false;
+        }
+        if (pitStartButton != null) pitStartButton.setEnabled(enabled);
+        if (pitPauseButton != null) {
+            pitPauseButton.setEnabled(!enabled && isPitSearchRunning);
+            if (enabled) pitPauseButton.setText(getString("button.pause"));
+        }
+        if (pitStopButton != null) pitStopButton.setEnabled(!enabled && isPitSearchRunning);
+        if (pitResetButton != null) pitResetButton.setEnabled(enabled);
+        if (pitSeedField != null) pitSeedField.setEnabled(enabled);
+        if (pitThreadCountField != null) pitThreadCountField.setEnabled(enabled);
+        if (pitMinRiverAreaField != null) pitMinRiverAreaField.setEnabled(enabled);
+        if (pitMinRiverRatioField != null) pitMinRiverRatioField.setEnabled(enabled);
+        applyPitBoundFieldEnableState(enabled);
+        if (pitResetCoordinatesButton != null) pitResetCoordinatesButton.setEnabled(enabled);
+        if (pitMcVersionComboBox != null) pitMcVersionComboBox.setEnabled(enabled);
+        if (pitLanguageComboBox != null) pitLanguageComboBox.setEnabled(enabled);
+    }
+
+    private void togglePitPause() {
+        if (pitSearchRunner == null || !isPitSearchRunning) return;
+        if (isPitSearchPaused) {
+            pitSearchRunner.resume();
+            isPitSearchPaused = false;
+            pitPauseButton.setText(getString("button.pause"));
+        } else {
+            pitSearchRunner.pause();
+            isPitSearchPaused = true;
+            pitPauseButton.setText(getString("button.resume"));
+        }
+    }
+
+    private void stopPitSearch() {
+        if (pitSearchRunner != null) {
+            pitSearchRunner.stop();
+        }
+        pitSearchResultToken.incrementAndGet();
+        isPitSearchRunning = false;
+        isPitSearchPaused = false;
+        setPitControlsEnabled(true);
+        if (pitProgressBar != null) {
+            pitProgressBar.setIndeterminate(false);
+        }
+        if (pitRemainingTimeLabel != null) {
+            pitRemainingTimeLabel.setText(getString("remainingTime.stopped"));
+        }
+    }
+
+    private void updatePitSearchProgress(long resultToken, LowYDripstoneCaveSearchRunner.ProgressInfo info) {
+        SwingUtilities.invokeLater(() -> {
+            if (resultToken != pitSearchResultToken.get()) {
+                return;
+            }
+            if (info.done()) {
+                if (resultToken != pitSearchResultToken.get()) {
+                    return;
+                }
+                pitSearchResultToken.incrementAndGet();
+                if (!isPitSearchRunning) {
+                    return;
+                }
+                setPitControlsEnabled(true);
+                pitProgressBar.setIndeterminate(false);
+                pitProgressBar.setValue(100);
+                pitProgressBar.setString(getString("progress.complete", info.processed(), info.total()));
+                pitRemainingTimeLabel.setText(getString("remainingTime.completed"));
+                return;
+            }
+            if (!isPitSearchRunning) return;
+            pitProgressBar.setIndeterminate(false);
+            int progress = (int) Math.min(100, info.percentage());
+            pitProgressBar.setValue(progress);
+            int phase = info.phase();
+            String stageKey = phase == 0 ? "progress.pit.stage0"
+                    : phase == 2 ? "progress.pit.stage2"
+                    : ((phase == 3 || phase == -1) ? "progress.pit.stage3" : "progress.pit.stage1");
+            pitProgressBar.setString(getString(stageKey, info.processed(), info.total(), info.percentage()));
+            pitElapsedTimeLabel.setText(getString("elapsedTime", formatTime(info.elapsedMs())));
+            if (isPitSearchPaused) {
+                pitRemainingTimeLabel.setText(getString("remainingTime.paused"));
+                return;
+            }
+            if (info.phase() == -1) {
+                pitRemainingTimeLabel.setText(getString("remainingTime.calculating"));
+                return;
+            }
+            pitRemainingTimeLabel.setText(info.remainingMs() > 0
+                    ? getString("remainingTime", formatTime(info.remainingMs()))
+                    : getString("remainingTime.calculating"));
+        });
+    }
+
+    private void addPitResult(long resultToken, String result) {
+        SwingUtilities.invokeLater(() -> {
+            if (resultToken != pitSearchResultToken.get()) {
+                return;
+            }
+            if (result == null || result.isEmpty()) {
+                return;
+            }
+            pitResultArea.append(result);
+            if (!result.endsWith("\n")) {
+                pitResultArea.append("\n");
+            }
+            pitResultArea.setCaretPosition(pitResultArea.getDocument().getLength());
+        });
+    }
+
+    private void sortPitResults() {
+        if (pitResultArea == null) return;
+        String text = pitResultArea.getText().trim();
+        if (text.isEmpty()) return;
+        String[] lines = text.split("\n");
+        List<String> withArea = new ArrayList<>();
+        List<String> other = new ArrayList<>();
+        for (String line : lines) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
+            if (parseAreaFromResultLine(line) >= 0) withArea.add(line);
+            else other.add(line);
+        }
+        withArea.sort((a, b) -> Integer.compare(parseAreaFromResultLine(b), parseAreaFromResultLine(a)));
+        StringBuilder sb = new StringBuilder();
+        for (String s : withArea) sb.append(s).append("\n");
+        for (String s : other) sb.append(s).append("\n");
+        pitResultArea.setText(sb.toString());
+    }
+
+    private void exportPitResults() {
+        String resultText = pitResultArea.getText();
+        if (resultText.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(this, getString("error.noResultsToExport"), getString("prompt.information"), JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle(getString("dialog.exportResults"));
+        fileChooser.setFileFilter(new FileNameExtensionFilter(getString("dialog.textFiles"), "txt"));
+        fileChooser.setSelectedFile(new File(getString("file.searchOutput")));
+        if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+            try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
+                writer.print(resultText);
+                JOptionPane.showMessageDialog(this, getString("success.export"), getString("prompt.success"), JOptionPane.INFORMATION_MESSAGE);
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(this, getString("error.exportFailed", ex.getMessage()), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void updatePitSearchTexts() {
+        if (pitSeedLabel != null) pitSeedLabel.setText(getString("label.seed"));
+        if (pitThreadCountLabel != null) pitThreadCountLabel.setText(getString("label.threadCount"));
+        if (pitMinRiverAreaLabel != null) pitMinRiverAreaLabel.setText(getString("label.minRiverArea"));
+        if (pitMinRiverRatioLabel != null) pitMinRiverRatioLabel.setText(getString("label.minRiverRatio"));
+        if (pitMcVersionLabel != null) pitMcVersionLabel.setText(getString("label.mcVersion"));
+        if (pitMinXLabel != null) pitMinXLabel.setText(getString("label.minX"));
+        if (pitMaxXLabel != null) pitMaxXLabel.setText(getString("label.maxX"));
+        if (pitMinZLabel != null) pitMinZLabel.setText(getString("label.minZ"));
+        if (pitMaxZLabel != null) pitMaxZLabel.setText(getString("label.maxZ"));
+        if (pitSquareSideCheckBox != null) pitSquareSideCheckBox.setText(getString("label.squareSide"));
+        if (pitLanguageLabel != null) pitLanguageLabel.setText(getString("label.language"));
+        if (pitCreditLabel != null) {
+            pitCreditLabel.setText(getString("credit.text", buildPitCreditHtml()));
+        }
+        if (pitRightPanel != null) {
+            pitRightPanel.setBorder(BorderFactory.createTitledBorder(getString("result.pitBorder")));
+        }
+        if (pitStartButton != null) pitStartButton.setText(getString("button.startSearch"));
+        if (pitPauseButton != null) {
+            pitPauseButton.setText(getString(isPitSearchPaused ? "button.resume" : "button.pause"));
+        }
+        if (pitStopButton != null) pitStopButton.setText(getString("button.stop"));
+        if (pitResetButton != null) pitResetButton.setText(getString("button.reset"));
+        if (pitResetCoordinatesButton != null) pitResetCoordinatesButton.setText(getString("button.resetToWorldBorder"));
+        if (pitExportButton != null) pitExportButton.setText(getString("button.export"));
+        if (pitSortButton != null) pitSortButton.setText(getString("button.sort"));
+        if (pitLanguageComboBox != null && languageComboBox != null) {
+            pitLanguageUpdating = true;
+            try {
+                pitLanguageComboBox.setSelectedIndex(languageComboBox.getSelectedIndex());
+            } finally {
+                pitLanguageUpdating = false;
+            }
+        }
+    }
+
     // 搜索相关方法（河流多阶段搜索）
     private void startSearch() {
         if (isSearchRunning && isSearchPaused) {
@@ -1192,6 +2034,19 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 }
             }
 
+            float yoScore = WeirdnessYOffset.score(seed);
+            if (searchArea >= WeirdnessYOffset.MIN_SEARCH_AREA
+                    && yoScore < WeirdnessYOffset.LUCKY_LOW_PROB_BELOW) {
+                int choice = askFastSearch(yoScore >= WeirdnessYOffset.LUCKY_BELOW);
+                if (choice == 0) {
+                    openFastSearchWithSingleSeedInputs(seed, threadCount, minX, maxX, minZ, maxZ);
+                    return;
+                }
+                if (choice != 1) {
+                    return;
+                }
+            }
+
             lastSearchSeed = seed;
             lastSearchMinX = minX;
             lastSearchMaxX = maxX;
@@ -1228,6 +2083,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             searchRunner = new LowYDripstoneCaveSearchRunner();
             if (!searchRunner.startRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode,
                 selectedMcVersion(searchMcVersionComboBox),
+                fastMode ? LowYDripstoneCaveSearchRunner.SEARCH_MODE_FAST : LowYDripstoneCaveSearchRunner.SEARCH_MODE_PRECISE,
                 info -> updateCaveSearchProgress(resultToken, info),
                 line -> addSearchResult(resultToken, line))) {
                 isSearchRunning = false;
@@ -2006,13 +2862,19 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
      */
     private void changeLanguage() {
         // 如果正在搜索或暂停，不允许切换语言
-        if (isSearchRunning || isSearchPaused || isListSearchRunning || isListSearchPaused) {
+        if (isSearchRunning || isSearchPaused || isListSearchRunning || isListSearchPaused
+                || isPitSearchRunning || isPitSearchPaused) {
             // 恢复原来的选择
+            int idx = currentLocale.getLanguage().equals("zh") ? 0 : 1;
             if (languageComboBox != null) {
-                if (currentLocale.getLanguage().equals("zh")) {
-                    languageComboBox.setSelectedIndex(0);
-                } else {
-                    languageComboBox.setSelectedIndex(1);
+                languageComboBox.setSelectedIndex(idx);
+            }
+            if (pitLanguageComboBox != null) {
+                pitLanguageUpdating = true;
+                try {
+                    pitLanguageComboBox.setSelectedIndex(idx);
+                } finally {
+                    pitLanguageUpdating = false;
                 }
             }
             return;
@@ -2058,13 +2920,17 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             if (tabbedPane != null) {
                 tabbedPane.setTitleAt(0, getString("tab.singleSeedSearch"));
                 tabbedPane.setTitleAt(1, getString("tab.listSearch"));
+                if (tabbedPane.getTabCount() > 2) {
+                    tabbedPane.setTitleAt(2, getString("tab.fullMapPitSearch"));
+                }
             }
 
             // 更新单种子搜索面板的所有文本
             updateSingleSeedSearchTexts();
 
-            // 更新列表搜索面板的所有文本
             updateListSearchTexts();
+
+            updatePitSearchTexts();
         });
     }
 
@@ -2772,7 +3638,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                         });
                     };
 
-                    listSearchRunner.runRiverSearchBlocking(seed, minX, maxX, minZ, maxZ, finalMinArea, finalRiverWeight, finalThreadCount, finalFastMode, finalMcVersion, seedProgressCallback, seedResultCallback);
+                    listSearchRunner.runRiverSearchBlocking(seed, minX, maxX, minZ, maxZ, finalMinArea, finalRiverWeight, finalThreadCount, finalFastMode, finalMcVersion,
+                            finalFastMode ? LowYDripstoneCaveSearchRunner.SEARCH_MODE_FAST : LowYDripstoneCaveSearchRunner.SEARCH_MODE_PRECISE,
+                            seedProgressCallback, seedResultCallback);
 
                     while (listSearchRunner.isRunning() && isListSearchRunning) {
                         while (isListSearchPaused && isListSearchRunning) {
