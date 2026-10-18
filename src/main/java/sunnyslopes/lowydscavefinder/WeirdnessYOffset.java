@@ -8,10 +8,10 @@ package sunnyslopes.lowydscavefinder;
 public final class WeirdnessYOffset {
     /** Single-seed searches whose block area is at least this run the luck check. */
     public static final long MIN_SEARCH_AREA = 6000001L * 6000001L;
-    /** Scores strictly below this use the normal lucky prompt. */
+    /** First-tab scores strictly below this offer the fast-search prompt. */
     public static final float LUCKY_BELOW = 0.75f;
-    /** Scores strictly below this still prompt, and say the chance is smaller. */
-    public static final float LUCKY_LOW_PROB_BELOW = 0.8f;
+    /** Fast-search scores strictly above this warn that the search will likely come out nothing. */
+    public static final float LUCKY_LOW_PROB_BELOW = 0.85f;
 
     private static final long XRSR_MIX1 = 0xbf58476d1ce4e5b9L;
     private static final long XRSR_MIX2 = 0x94d049bb133111ebL;

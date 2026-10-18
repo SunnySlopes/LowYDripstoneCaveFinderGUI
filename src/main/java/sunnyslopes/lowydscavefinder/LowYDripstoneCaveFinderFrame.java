@@ -1368,11 +1368,17 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     }
 
     /** 0 = switch to fast search, 1 = stay and search, -1 = dismissed. */
-    private int askFastSearch(boolean lowerChance) {
+    private int askFastSearch() {
         Object[] options = {getString("dialog.fastSearch.try"), getString("dialog.fastSearch.stay")};
-        String messageKey = lowerChance ? "dialog.fastSearch.messageLow" : "dialog.fastSearch.message";
-        return JOptionPane.showOptionDialog(this, getString(messageKey), getString("prompt.information"),
+        return JOptionPane.showOptionDialog(this, getString("dialog.fastSearch.message"), getString("prompt.information"),
                 JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+    }
+
+    /** 0 = start fast search anyway, 1 = go back to the first tab, -1 = dismissed. */
+    private int askUnlikelyFastSearch() {
+        Object[] options = {getString("dialog.fastSearch.insist"), getString("dialog.fastSearch.back")};
+        return JOptionPane.showOptionDialog(this, getString("dialog.fastSearch.unlikely"), getString("prompt.warning"),
+                JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[1]);
     }
 
     private void openFastSearchWithSingleSeedInputs(long seed, int threadCount, int minX, int maxX, int minZ, int maxZ) {
@@ -1414,6 +1420,57 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         }
         if (tabbedPane != null && tabbedPane.getTabCount() > 2) {
             tabbedPane.setSelectedIndex(2);
+        }
+    }
+
+    /** Copy the fast-search inputs back to the first tab. River weight and fast mode stay as they are. */
+    private void openSingleSeedWithFastSearchInputs(long seed, int threadCount, int minX, int maxX, int minZ, int maxZ) {
+        if (searchSeedField != null) {
+            searchSeedField.setText(Long.toString(seed));
+        }
+        if (searchThreadCountField != null) {
+            searchThreadCountField.setText(String.valueOf(threadCount));
+        }
+        if (searchMcVersionComboBox != null && pitMcVersionComboBox != null) {
+            searchMcVersionComboBox.setSelectedIndex(pitMcVersionComboBox.getSelectedIndex());
+        }
+        boolean square = pitSquareSideCheckBox != null && pitSquareSideCheckBox.isSelected();
+        squareSideUpdating = true;
+        try {
+            if (squareSideCheckBox != null) {
+                squareSideCheckBox.setSelected(square);
+            }
+            if (square && squareSideField != null && pitSquareSideField != null) {
+                squareSideField.setText(pitSquareSideField.getText().trim());
+            }
+        } finally {
+            squareSideUpdating = false;
+        }
+        if (square) {
+            applySquareSideToBounds();
+        } else {
+            if (minXField != null) minXField.setText(String.valueOf(minX));
+            if (maxXField != null) maxXField.setText(String.valueOf(maxX));
+            if (minZField != null) minZField.setText(String.valueOf(minZ));
+            if (maxZField != null) maxZField.setText(String.valueOf(maxZ));
+        }
+        applyBoundFieldEnableState(!isSearchRunning);
+        if (searchMinRiverAreaField != null && pitMinRiverAreaField != null) {
+            searchRiverParamUpdating = true;
+            try {
+                searchMinRiverAreaField.setText(pitMinRiverAreaField.getText().trim());
+                if (searchMinRiverRatioField != null && pitMinRiverRatioField != null) {
+                    searchMinRiverRatioField.setText(pitMinRiverRatioField.getText().trim());
+                }
+            } finally {
+                searchRiverParamUpdating = false;
+            }
+        }
+        if (searchRiverWeightField != null && searchRiverWeightField.getText().trim().isEmpty()) {
+            searchRiverWeightField.setText(String.format("%.2f", DEFAULT_RIVER_WEIGHT_UI));
+        }
+        if (tabbedPane != null) {
+            tabbedPane.setSelectedIndex(0);
         }
     }
 
@@ -1604,6 +1661,16 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 int result = JOptionPane.showConfirmDialog(this, getString("error.outOfBounds"), getString("prompt.warning"),
                         JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (result != JOptionPane.YES_OPTION) {
+                    return;
+                }
+            }
+            if (WeirdnessYOffset.score(seed) > WeirdnessYOffset.LUCKY_LOW_PROB_BELOW) {
+                int choice = askUnlikelyFastSearch();
+                if (choice == 1) {
+                    openSingleSeedWithFastSearchInputs(seed, threadCount, minX, maxX, minZ, maxZ);
+                    return;
+                }
+                if (choice != 0) {
                     return;
                 }
             }
@@ -2036,8 +2103,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
             float yoScore = WeirdnessYOffset.score(seed);
             if (searchArea >= WeirdnessYOffset.MIN_SEARCH_AREA
-                    && yoScore < WeirdnessYOffset.LUCKY_LOW_PROB_BELOW) {
-                int choice = askFastSearch(yoScore >= WeirdnessYOffset.LUCKY_BELOW);
+                    && yoScore < WeirdnessYOffset.LUCKY_BELOW) {
+                int choice = askFastSearch();
                 if (choice == 0) {
                     openFastSearchWithSingleSeedInputs(seed, threadCount, minX, maxX, minZ, maxZ);
                     return;

@@ -68,25 +68,28 @@ Coordinates default to the world border (±30000000) and can be changed. Like th
 
 #### Jump from Single Seed Search / 从单种子搜索跳转
 
-The prompt appears only when you click **Start Search** on **Single Seed Search**, and only when the search box is at least **6000001 × 6000001** blocks. The program then scores the seed's weirdness y-offset. Thresholds live in `WeirdnessYOffset`: `MIN_SEARCH_AREA`, `LUCKY_BELOW` (0.75), `LUCKY_LOW_PROB_BELOW` (0.8).
+The prompt appears only when you click **Start Search** on **Single Seed Search**, and only when the search box is at least **6000001 × 6000001** blocks. The program then scores the seed's weirdness y-offset. Thresholds live in `WeirdnessYOffset`: `MIN_SEARCH_AREA`, `LUCKY_BELOW` (0.75), `LUCKY_LOW_PROB_BELOW` (0.85).
 
-| y-offset | What happens / 行为 |
-|---|---|
-| `< 0.75` | Dialog, original wording / 弹框，原文案 |
-| `0.75` ≤ offset `< 0.8` | Same dialog, with a lower-chance note: Chinese `（概率较小）`, English `(not so lucky)` / 同样弹框，并注明概率较小 |
-| `≥ 0.8` | No dialog. The original search starts / 不弹框，直接开始原搜索 |
+| Where / 位置 | y-offset | What happens / 行为 |
+|---|---|---|
+| First tab / 第一页 | `< 0.75` | Offers fast search / 询问要不要去快速搜索 |
+| First tab / 第一页 | `≥ 0.75` | No dialog. The original search starts / 不弹框，直接开始原搜索 |
+| Fast tab, before search / 快速页，开搜前 | `> 0.85` | Warns that fast search will likely come back empty / 提示快速搜索很可能会空手而归 |
+| Fast tab, before search / 快速页，开搜前 | `≤ 0.85` | Search starts / 直接开始搜索 |
 
-The seed-list tab and the fast tab itself never show this dialog. Closing the dialog starts neither search.
+The seed-list tab never shows these dialogs. Closing a dialog starts neither search.
 
 - **去碰碰运气! / have a try!** switches to **Fast Single Seed Search** and copies the seed, thread count, game version, and coordinates. If square-side mode is on, the side length is copied and the box stays checked. The area ratio stays at this tab's **90%** default. River weight stays on the first tab. The search waits until you click **Start Search**.
 - **算了吧，继续原搜索 / don't cheat me! remain on this page** continues the search you just started.
+- On the fast tab, **I'll try anyway / 我偏要试试** starts the fast search. **OK / 好的** switches back to **Single Seed Search** and copies the seed, thread count, game version, coordinates, and area ratio. River weight and Fast Mode stay at the values already on the first tab (a blank river weight is filled with the default 0.75). That jump does not start a search.
 
-只有在**单种子搜索**里点**开始搜索**，并且搜索范围不小于 **6000001 × 6000001** 格时，才会做这次检查。程序计算该种子的奇异值 y-offset。阈值在 `WeirdnessYOffset`：`MIN_SEARCH_AREA`、`LUCKY_BELOW`（0.75）、`LUCKY_LOW_PROB_BELOW`（0.8）。
+只有在**单种子搜索**里点**开始搜索**，并且搜索范围不小于 **6000001 × 6000001** 格时，才会询问要不要去快速搜索。程序计算该种子的奇异值 y-offset。阈值在 `WeirdnessYOffset`：`MIN_SEARCH_AREA`、`LUCKY_BELOW`（0.75）、`LUCKY_LOW_PROB_BELOW`（0.85）。offset 不低于 0.75 时，第一页不再弹框。
 
-种子列表页和快速页本身不会弹出这个框。关掉弹框则两边都不开始搜索。
+种子列表页不会弹出这些框。关掉弹框则两边都不开始搜索。
 
 - **去碰碰运气! / have a try!** 切到**快速单种子搜索**，并带上种子、线程数、游戏版本和坐标。第一页开着正方形模式时，边长一并带上并保持勾选。面积占比保持本页默认 **90%**。河流折算系数留在第一页。需要再点一次**开始搜索**才会执行。
 - **算了吧，继续原搜索 / don't cheat me! remain on this page** 继续刚才那次原搜索。
+- 快速页上，**我偏要试试**会照常开始快速搜索。**好的**跳回**单种子搜索**，带上种子、线程数、游戏版本、坐标和面积占比。河流折算系数和快速模式保留第一页上已有的值（折算系数为空时填默认 0.75）。这次跳转不会自动开始搜索。
 
 ## Fast Mode / Precise Mode / 快速模式与精确模式
 
