@@ -48,8 +48,11 @@ public class LowYDripstoneCaveSearchRunner {
         return "26.1";
     }
 
-    /** Full ring area π×(128²−24²); upper bound for weighted total (s=) percentage. */
-    public static final double RIVER_AREA_FULL = Math.PI * (128 * 128 - 24 * 24);
+    /**
+     * Block-cell centers in the 24..128 annulus (block-center raster).
+     * This is also the cap for the weighted total, so the reported ratio is 0%..100%.
+     */
+    public static final double RIVER_AREA_FULL = 49_640.0;
 
     /** Max search area (blocks). */
     public static final long MAX_SEARCH_AREA_BLOCKS = 60_000_001L * 60_000_001L;

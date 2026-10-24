@@ -54,7 +54,7 @@ Use this tab when you trust the seed (its weirdness y-offset is low enough(<0.75
 
 Coordinates default to the world border (±30000000) and can be changed. Like the other tabs, a **square side length** checkbox fills the four bounds from a square centered at (0, 0) and locks those fields. **Reset Coordinates to World Border** checks the box again and restores that side length.
 
-- Weighted area ratio is **80%–95%**, default **90%**. There is no river-weight field. River area is not counted, and result lines omit `cave` / `river`: `/tp x 64 z s=total/49662 = pct%`.
+- Weighted area ratio is **80%–95%**, default **90%**. There is no river-weight field. River area is not counted, and result lines omit `cave` / `river`: `/tp x 64 z s=total/49640 = pct%`.
 - This tab does not use the Fast Mode checkbox. Progress is four phases: octave cache, finding large pits, continentalness check, precise check of candidate points.
 - Click **Start Search** yourself. Switching to this tab never starts a search.
 
@@ -62,7 +62,7 @@ Coordinates default to the world border (±30000000) and can be changed. Like th
 
 坐标默认是世界边界（±30000000），可以改。和另外两页一样有**正方形区域边长**：勾选后以 (0, 0) 为中心填入四个坐标并锁住它们。**重置坐标为世界边界**会重新勾选，并把边长恢复成世界边界。
 
-- 加权总面积占比 **80%～95%**，默认 **90%**。没有河流折算系数（因为这种搜索结果附近肯定没有河流），不计入河流面积，结果行也不带 `cave` / `river`：`/tp x 64 z s=total/49662 = pct%`。
+- 加权总面积占比 **80%～95%**，默认 **90%**。没有河流折算系数（因为这种搜索结果附近肯定没有河流），不计入河流面积，结果行也不带 `cave` / `river`：`/tp x 64 z s=total/49640 = pct%`。
 - 这一页不用快速模式勾选框。进度分四段：噪声缓存、寻找大坑、大陆性检查、精确检查潜在点位。
 - 需要自己点**开始搜索**。切到这一页不会自动开搜。
 
@@ -115,13 +115,13 @@ Phase 1 coarse scan uses continentalness (Cont) + weirdness (ridge) climate samp
 - Native code samples biomes at fixed heights **Y = -60, -56, -52** (cave + river averaged).
 - **Weighted total** (`total` / `s=` in output): `cave + river × river weight factor` (UI default 0.75)
 - Sorting, filtering threshold, and percentage use **total**; `cave` and `river` are reference display only.
-- Result line format: `/tp x 64 z s=total/49662 = pct% cave=N river=M`
+- Result line format: `/tp x 64 z s=total/49640 = pct% cave=N river=M`
 - Weighted total ratio range: Fast Mode **60%～95%**, Precise Mode **40%～95%**.
 
 - Native 在固定高度 **Y = -60、-56、-52** 采样群系（洞穴+河流取平均）。
 - **加权总面积**（输出中的 `total` / `s=`）：`cave + river × 河流折算系数`（界面默认 0.75）
 - 排序、阈值过滤、占比均基于 **total**；`cave` 与 `river` 仅作参考显示。
-- 结果行格式：`/tp x 64 z s=total/49662 = pct% cave=N river=M`
+- 结果行格式：`/tp x 64 z s=total/49640 = pct% cave=N river=M`
 - 加权总面积占比范围：快速模式 **60%～95%**，精确模式 **40%～95%**。
 
 ## Features / 功能特点

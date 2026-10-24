@@ -37,7 +37,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private static final int DEFAULT_LIST_MIN_Z = -4096;
     private static final int DEFAULT_LIST_MAX_Z = 4095;
 
-    private static final double RIVER_AREA_FULL = Math.PI * (128 * 128 - 24 * 24);
+    private static final double RIVER_AREA_FULL = LowYDripstoneCaveSearchRunner.RIVER_AREA_FULL;
     /**
      * 加权总面积下限：快速模式 60%，精确模式 40%；上限 95%，占比同范围
      */
@@ -991,7 +991,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     // 排序搜索结果（按加权总面积 total 从大到小；行格式含 s= total cave= river=）
 
     /**
-     * 从结果行解析加权总面积 total，格式 /tp x 64 z s=total/49662 = pct% cave=N river=M
+     * 从结果行解析加权总面积 total，格式 /tp x 64 z s=total/49640 = pct% cave=N river=M
      */
     private int parseAreaFromResultLine(String line) {
         int sIdx = line.indexOf("s=");
