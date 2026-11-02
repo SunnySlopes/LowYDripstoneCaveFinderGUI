@@ -43,17 +43,7 @@ bin/
 ### Mac OS ###
 .DS_Store
 
-### Native / C++ build artifacts ###
-jni/build/
-jni/build-mingw/
-jni/native/jni/build/
-jni/*.o
-jni/*.a
-jni/*.exe
-
-### Prebuilt native libraries (required for Gradle JAR packaging) ###
-native/
-native/**/
-native/**/*.dll
-native/**/*.so
-native/**/*.dylib
+### Native / C++ build artifacts live in the LowYDripstoneCaveFinderBase submodule ###
+### (the main module no longer owns any jni/ or native/ source tree) ###
+LowYDripstoneCaveFinderBase/build/
+LowYDripstoneCaveFinderBase/cmake-build-*/

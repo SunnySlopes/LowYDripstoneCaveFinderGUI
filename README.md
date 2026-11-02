@@ -140,46 +140,92 @@ Phase 1 coarse scan uses continentalness (Cont) + weirdness (ridge) climate samp
 
 ## Build / 构建
 
-This project uses **prebuilt native libraries only** (no CMake in Gradle).
+All C++/cubiomes computation lives in the
+[LowYDripstoneCaveFinderBase](https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase)
+submodule. The main module only owns the Swing GUI, query orchestration and
+the threshold / page-jump decisions.
 
-本项目**仅使用预编译 native 库**（Gradle 不触发 CMake 编译）。
+全部 C++ / cubiomes 计算代码位于
+[LowYDripstoneCaveFinderBase](https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase)
+子模块。主模块只保留 Swing 界面、查询编排以及阈值判断 / 页面跳转逻辑。
 
-1. Build `libDripstoneCaveFinderLibJ.dll` in the `jni/` native tree (e.g. `jni/build-jni.bat`).
-2. Copy the DLL to `native/windows/libDripstoneCaveFinderLibJ.dll`.
-3. Build the JAR:
+1. Initialize the submodule and its nested cubiomes checkout:
 
 ```bat
-gradle buildMainJar
+git submodule update --init --recursive
 ```
+
+2. Build the base DLL, the main fat JAR and the standalone CLI in one step:
+
+```bat
+gradlew buildDistribution
+```
+
+`buildDistribution` runs the submodule checks and the JNI contract check, then
+builds:
+
+- `build\libs\LowYDripstoneCaveFinder-1.3.2.jar` — GUI fat JAR with the base DLL embedded
+- `build\cli\lowydripstonecavefinder-cli.exe` — standalone CLI
+- `LowYDripstoneCaveFinderBase\build\native\libDripstoneCaveFinderLibJ.dll` — JNI library
 
 The DLL is packaged into the JAR automatically via `prepareNativeResources`.
 
 DLL 由 `prepareNativeResources` 自动打入 JAR。
 
-Run:
+Run the GUI:
 
 ```bat
-java -jar build\libs\LowYDripstoneCaveFinder-1.0.0.jar
+java -jar build\libs\LowYDripstoneCaveFinder-1.3.2.jar
 ```
 
-Or use `run.bat`.
+Or use `run.bat`. The standalone CLI can be run directly:
+
+```bat
+build\cli\lowydripstonecavefinder-cli.exe --seed 12345 --out result.txt
+build\cli\lowydripstonecavefinder-cli.exe --weirdness-y-offset 12345
+```
+
+The base submodule can also be built independently; see
+`LowYDripstoneCaveFinderBase/README.md`.
 
 ## Core Libraries / 核心依赖
 
+- [LowYDripstoneCaveFinderBase](https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase) - JNI engine + standalone CLI
+- [cubiomes (xpple)](https://github.com/xpple/cubiomes) - nested submodule of `LowYDripstoneCaveFinderBase`
 - [RiverFinder (melationin)](https://github.com/melationin/riverfinder) - Reference implementation
-- [cubiomes (xpple)](https://github.com/xpple/cubiomes) - via `jni/cubiomes` submodule (C sources)
 
+- [LowYDripstoneCaveFinderBase](https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase) - JNI 引擎与独立 CLI
+- [cubiomes (xpple)](https://github.com/xpple/cubiomes) - `LowYDripstoneCaveFinderBase` 的嵌套子模块
 - [RiverFinder (melationin)](https://github.com/melationin/riverfinder) - 参考实现
-- [cubiomes (xpple)](https://github.com/xpple/cubiomes) - 通过 `jni/cubiomes` 子模块引入（C 源码）
+
+## License / 许可证
+
+This project is released under the **MIT License**; see [LICENSE](LICENSE).
+
+The native search core in the `LowYDripstoneCaveFinderBase` submodule is MIT-licensed as well.
+It builds on [cubiomes](https://github.com/Cubitect/cubiomes) by Cubitect (MIT).
+
+本项目以 **MIT** 许可证发布，详见 [LICENSE](LICENSE)。
+
+`LowYDripstoneCaveFinderBase` 子模块同样采用 MIT 许可证；其原生引擎基于 Cubitect 的
+[cubiomes](https://github.com/Cubitect/cubiomes)（MIT）。
 
 ## Notes / 注意事项
 
 - Use a thread count that matches your CPU capability for best stability.
 - Native libraries (`dll`/`so`) are packaged in the jar and extracted to a temporary directory at runtime.
-- To update the native library, rebuild in `jni/` and overwrite `native/windows/libDripstoneCaveFinderLibJ.dll`.
+- The weirdness y-offset score is computed by the base submodule through
+  `LowYDripstoneCaveFinderBridge.weirdnessYOffset(long)`; the `0.75` / `0.85`
+  thresholds and the fast-search page jump stay in the GUI.
+- To update the native code, change `LowYDripstoneCaveFinderBase` and rebuild
+  with `gradlew buildDistribution`.
 - 建议根据 CPU 性能设置线程数以获得更稳定的体验。
 - 原生库（`dll`/`so`）已打包进 jar，运行时会自动解压到临时目录加载。
-- 更新 native 库时，在 `jni/` 重新编译并覆盖 `native/windows/libDripstoneCaveFinderLibJ.dll`。
+- 奇异值 y-offset 分数由 base 子模块通过
+  `LowYDripstoneCaveFinderBridge.weirdnessYOffset(long)` 计算；`0.75` / `0.85`
+  阈值判断与快速搜索页跳转仍由主模块执行。
+- 更新 native 代码时修改 `LowYDripstoneCaveFinderBase`，然后执行
+  `gradlew buildDistribution`。
 
 ---
 

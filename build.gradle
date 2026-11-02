@@ -8,6 +8,24 @@ plugins {
 }
 group 'org.example'
 version '1.3.2'
+
+/*
+ * Native contract with the LowYDripstoneCaveFinderBase submodule:
+ *
+ *   LowYDripstoneCaveFinderBase owns every line of C++/cubiomes code.
+ *   :lowydripstonecavefinderbase:copyNativeArtifacts -> build/native/libDripstoneCaveFinderLibJ.dll
+ *   :lowydripstonecavefinderbase:copyCliArtifact     -> build/cli/lowydripstonecavefinder-cli.exe
+ *
+ * The Java side only depends on the JNI signatures in
+ * LowYDripstoneCaveFinderBridge and on the DLL produced by the subproject.
+ * cubiomes is a nested submodule of LowYDripstoneCaveFinderBase; the main
+ * module never compiles or checks out its own cubiomes copy.
+ *
+ * The single-issue weirdness y-offset calculation is exposed separately as
+ * LowYDripstoneCaveFinderBridge.weirdnessYOffset(long). The GUI keeps the
+ * threshold comparison and all page-jump decisions.
+ */
+
 repositories {
     mavenCentral()
     gradlePluginPortal()
@@ -27,26 +45,210 @@ repositories {
     maven {url "https://repo.jellejurre.dev"}
 
 }
+
 dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
 test {
     useJUnitPlatform()
 }
 
-// 配置 Shadow JAR
-shadowJar {
-    archiveBaseName.set('LowYDripstoneCaveFinder')
-    archiveClassifier.set('')
-    mergeServiceFiles()
+// buildMainJar below is the single fat-JAR task. The plugin's default
+// shadowJar would otherwise write the same archive name during `gradlew build`.
+tasks.named('shadowJar') {
+    enabled = false
 }
 
-// 创建 LowYDripstoneCaveFinder 的可执行 JAR
+// Keep the plain Java jar out of the deliverable name; buildMainJar owns
+// build/libs/LowYDripstoneCaveFinder-<version>.jar.
+tasks.named('jar') {
+    archiveClassifier.set('thin')
+}
+
+def generatedNativeResourcesDir = layout.buildDirectory.dir('generated/native-resources')
+def baseNativeDir = project(':lowydripstonecavefinderbase').layout.buildDirectory.dir('native')
+def baseCliExe = file('LowYDripstoneCaveFinderBase/build/cli/lowydripstonecavefinder-cli.exe')
+def mainPackageDir = layout.buildDirectory.dir('cli')
+
+def resolveJavac() {
+    def candidates = []
+    def javaHome = System.getenv('JAVA_HOME')
+    if (javaHome) {
+        candidates << new File(javaHome, 'bin/javac.exe')
+        candidates << new File(javaHome, 'bin/javac')
+    }
+    def runtimeHome = System.getProperty('java.home')
+    if (runtimeHome) {
+        candidates << new File(runtimeHome, 'bin/javac.exe')
+        candidates << new File(runtimeHome, 'bin/javac')
+    }
+    def path = System.getenv('PATH')
+    if (path) {
+        path.split(File.pathSeparator).each { dir ->
+            candidates << new File(dir, 'javac.exe')
+            candidates << new File(dir, 'javac')
+        }
+    }
+    def found = candidates.find { it.isFile() }
+    if (found == null) {
+        throw new GradleException('javac not found. Set JAVA_HOME to a JDK 17+ directory.')
+    }
+    return found
+}
+
+/*
+ * Fails fast when the submodule is not connected. Building the JAR or the
+ * standalone CLI without LowYDripstoneCaveFinderBase/cubiomes would otherwise
+ * fail later inside MSYS2 with a much less obvious message.
+ */
+def checkLowYBaseSubmodule = tasks.register('checkLowYBaseSubmodule') {
+    group = 'verification'
+    description = 'Verifies LowYDripstoneCaveFinderBase and its nested cubiomes submodule are initialized'
+    doLast {
+        def required = [
+                'LowYDripstoneCaveFinderBase/build.gradle',
+                'LowYDripstoneCaveFinderBase/lowydripstonecavefinder.cpp',
+                'LowYDripstoneCaveFinderBase/lowydripstonecavefinder.h',
+                'LowYDripstoneCaveFinderBase/dripstonecave_finder.cpp',
+                'LowYDripstoneCaveFinderBase/LargePitSearch.cpp',
+                'LowYDripstoneCaveFinderBase/BiomeSampler.cpp',
+                'LowYDripstoneCaveFinderBase/OctaveFieldCache.cpp',
+                'LowYDripstoneCaveFinderBase/lowydripstonecavefinder_cli.cpp',
+                'LowYDripstoneCaveFinderBase/Thread.h',
+                'LowYDripstoneCaveFinderBase/SearchConfig.h',
+                'LowYDripstoneCaveFinderBase/build_jni_msys2.ps1',
+                'LowYDripstoneCaveFinderBase/build_cli_msys2.ps1',
+                'LowYDripstoneCaveFinderBase/jni/CMakeLists.txt',
+                'LowYDripstoneCaveFinderBase/jni/sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge.cpp',
+                'LowYDripstoneCaveFinderBase/jni/generated/sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge.h',
+                'LowYDripstoneCaveFinderBase/.gitmodules',
+                'LowYDripstoneCaveFinderBase/cubiomes/generator.c'
+        ]
+        def missing = required.findAll { !file(it).exists() }
+        if (!missing.isEmpty()) {
+            throw new GradleException(
+                    'LowYDripstoneCaveFinderBase submodule is not initialized correctly. Missing: '
+                            + missing.join(', ')
+                            + '. Run: git submodule update --init --recursive')
+        }
+
+        if (!file('LowYDripstoneCaveFinderBase/.gitmodules').text.contains('cubiomes')) {
+            throw new GradleException(
+                    'LowYDripstoneCaveFinderBase/.gitmodules does not declare the nested cubiomes submodule. '
+                            + 'Update LowYDripstoneCaveFinderBase and run: '
+                            + 'git -C LowYDripstoneCaveFinderBase submodule update --init --recursive')
+        }
+    }
+}
+
+/*
+ * The Java bridge is the source of truth for the JNI signatures. Regenerate the
+ * header and compare it with the checked-in copy in the submodule so the two
+ * sides cannot drift apart silently.
+ */
+def verifyJniContract = tasks.register('verifyJniContract') {
+    group = 'verification'
+    description = 'Checks LowYDripstoneCaveFinderBridge.java against the JNI header owned by the base submodule'
+    def bridgeJava = file('src/main/java/sunnyslopes/lowydscavefinder/LowYDripstoneCaveFinderBridge.java')
+    def baseHeader = file('LowYDripstoneCaveFinderBase/jni/generated/sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge.h')
+    def contractDir = layout.buildDirectory.dir('generated/jni-contract')
+    inputs.file(bridgeJava)
+    inputs.file(baseHeader)
+    outputs.dir(contractDir)
+    doLast {
+        def outDir = contractDir.get().asFile
+        delete(outDir)
+        outDir.mkdirs()
+        def classesDir = new File(outDir, 'classes')
+        classesDir.mkdirs()
+        def javac = resolveJavac()
+        exec {
+            commandLine javac.absolutePath, '-encoding', 'UTF-8',
+                    '-d', classesDir.absolutePath,
+                    '-h', outDir.absolutePath,
+                    bridgeJava.absolutePath
+        }
+        def generated = new File(outDir, 'sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge.h')
+        if (!generated.exists()) {
+            throw new GradleException("javac did not produce ${generated}")
+        }
+        def normalize = { File f ->
+            f.getText('UTF-8').readLines()
+                    .collect { it.replaceAll(/\s+$/, '') }
+                    .findAll { !it.trim().isEmpty() }
+                    .join('\n')
+        }
+        if (normalize(generated) != normalize(baseHeader)) {
+            throw new GradleException(
+                    'JNI contract drift: LowYDripstoneCaveFinderBridge.java and '
+                            + 'LowYDripstoneCaveFinderBase/jni/generated/'
+                            + 'sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge.h differ. '
+                            + 'Copy the regenerated header into LowYDripstoneCaveFinderBase.')
+        }
+    }
+}
+
+// Give the missing-submodule error a chance to run before the header check.
+verifyJniContract.configure { dependsOn checkLowYBaseSubmodule }
+
+tasks.register('prepareNativeResources') {
+    group = 'build'
+    description = 'Collects the LowYDripstoneCaveFinderBase JNI DLL into jar resources'
+    dependsOn checkLowYBaseSubmodule, verifyJniContract
+    dependsOn ':lowydripstonecavefinderbase:copyNativeArtifacts'
+    inputs.files(baseNativeDir).optional()
+    outputs.dir(generatedNativeResourcesDir)
+    doLast {
+        def outDir = generatedNativeResourcesDir.get().asFile
+        delete(outDir)
+        outDir.mkdirs()
+
+        def nativeDir = baseNativeDir.get().asFile
+        def dll = new File(nativeDir, 'libDripstoneCaveFinderLibJ.dll')
+        if (!dll.exists()) {
+            throw new GradleException(
+                    "Native DLL missing after :lowydripstonecavefinderbase:copyNativeArtifacts: ${dll}. "
+                            + 'Check the MSYS2 build output above.')
+        }
+        copy {
+            from(dll)
+            into(new File(outDir, 'native/windows'))
+        }
+        copy {
+            from(nativeDir)
+            include('*.so')
+            into(new File(outDir, 'native/linux'))
+        }
+        copy {
+            from(nativeDir)
+            include('*.dylib')
+            into(new File(outDir, 'native/macos'))
+        }
+    }
+}
+
+tasks.named('processResources') {
+    dependsOn tasks.named('prepareNativeResources')
+    from(generatedNativeResourcesDir)
+}
+
+// Creates the fat JAR for LowYDripstoneCaveFinder (native DLL embedded via processResources).
 tasks.register('buildMainJar', ShadowJar) {
     group = 'build'
-    description = 'Creates a fat JAR for LowYDripstoneCaveFinder'
+    description = 'Creates a fat JAR for LowYDripstoneCaveFinder with the base submodule DLL'
     archiveBaseName.set('LowYDripstoneCaveFinder')
     archiveClassifier.set('')
+    dependsOn classes, processResources
     from sourceSets.main.output
     configurations = [project.configurations.runtimeClasspath]
     manifest {
@@ -63,90 +265,52 @@ tasks.register('buildMainJar', ShadowJar) {
     exclude 'module-info.class'
 }
 
-// 创建所有 JAR 的任务
+tasks.register('buildNative') {
+    group = 'build'
+    description = 'Builds libDripstoneCaveFinderLibJ.dll via the LowYDripstoneCaveFinderBase subproject'
+    dependsOn checkLowYBaseSubmodule, verifyJniContract
+    dependsOn ':lowydripstonecavefinderbase:copyNativeArtifacts'
+}
+
+tasks.register('buildNativeCli') {
+    group = 'build'
+    description = 'Builds the standalone lowydripstonecavefinder-cli.exe via the base subproject'
+    dependsOn checkLowYBaseSubmodule
+    dependsOn ':lowydripstonecavefinderbase:copyCliArtifact'
+}
+
+// Keeps the main module's own copy of the CLI next to the JAR.
+tasks.register('collectNativeCli', Copy) {
+    group = 'build'
+    description = 'Copies lowydripstonecavefinder-cli.exe into build/cli'
+    dependsOn buildNativeCli
+    from baseCliExe
+    into mainPackageDir
+    doFirst {
+        if (!baseCliExe.exists()) {
+            throw new GradleException(
+                    "Standalone CLI missing after :lowydripstonecavefinderbase:copyCliArtifact: ${baseCliExe}")
+        }
+    }
+}
+
+tasks.register('buildDistribution') {
+    group = 'build'
+    description = 'One-shot: check submodule → JNI contract → DLL + fat JAR + standalone CLI (no zip)'
+    dependsOn buildMainJar, collectNativeCli
+}
+
 tasks.register('buildAllJars') {
     group = 'build'
-    description = 'Builds all executable JARs'
-    dependsOn buildMainJar
+    description = 'Alias of buildDistribution'
+    dependsOn buildDistribution
 }
 
-// Prebuilt native libraries: buildMainJar triggers Windows JNI build when possible.
-def generatedNativeResourcesDir = layout.buildDirectory.dir('generated/native-resources')
-def windowsDll = file('native/windows/libDripstoneCaveFinderLibJ.dll')
-def jniBat = file('jni/build-jni.bat')
-
-tasks.register('buildNativeWindows', Exec) {
-    group = 'build'
-    description = 'Builds libDripstoneCaveFinderLibJ.dll via jni/build-jni.bat'
-    workingDir = file('jni')
-    commandLine 'cmd', '/c', 'build-jni.bat'
-    onlyIf {
-        System.getProperty('os.name').toLowerCase().contains('windows') && jniBat.exists()
-    }
-    inputs.files(
-        fileTree('jni') {
-            include 'BiomeSampler.cpp', 'BiomeSampler.h', 'dripstonecave_finder.cpp', 'SearchConfig.h',
-                    'LargePitSearch.cpp', 'OctaveFieldCache.cpp', 'OctaveFieldCache.h',
-                    'build-jni.bat', 'Thread.h',
-                    'cxx_compat/*.h',
-                    'native/jni/**/*.cpp', 'native/jni/**/*.h',
-                    'cubiomes/generator.{c,h}', 'cubiomes/layers.{c,h}',
-                    'cubiomes/biomenoise.{c,h}', 'cubiomes/biomes.{c,h}',
-                    'cubiomes/noise.{c,h}', 'cubiomes/util.{c,h}',
-                    'cubiomes/rng.h', 'cubiomes/xrms.h', 'cubiomes/tables/*.h'
-        }
-    )
-    outputs.file(windowsDll)
+tasks.named('build') {
+    dependsOn buildDistribution
 }
 
-tasks.register('prepareNativeResources') {
-    group = 'build'
-    description = 'Collects prebuilt dll/so/dylib from native/ into jar resources'
-    dependsOn tasks.named('buildNativeWindows')
-    inputs.files(windowsDll)
-    outputs.dir(generatedNativeResourcesDir)
-    doLast {
-        def outDir = generatedNativeResourcesDir.get().asFile
-        delete(outDir)
-        outDir.mkdirs()
-
-        def windowsDir = file('native/windows')
-        def linuxDir = file('native/linux')
-        def macosDir = file('native/macos')
-
-        if (!windowsDll.exists()) {
-            throw new GradleException(
-                'Missing native/windows/libDripstoneCaveFinderLibJ.dll. ' +
-                'Run jni/build-jni.bat (uses jni/cubiomes).')
-        }
-
-        copy {
-            from(windowsDir)
-            include('*.dll')
-            into(new File(outDir, 'native/windows'))
-        }
-        if (linuxDir.exists()) {
-            copy {
-                from(linuxDir)
-                include('*.so')
-                into(new File(outDir, 'native/linux'))
-            }
-        }
-        if (macosDir.exists()) {
-            copy {
-                from(macosDir)
-                include('*.dylib')
-                into(new File(outDir, 'native/macos'))
-            }
-        }
-    }
-}
-
-tasks.named('processResources') {
-    dependsOn tasks.named('prepareNativeResources')
-    from(generatedNativeResourcesDir)
-}
-
-tasks.named('buildMainJar') {
-    dependsOn tasks.named('prepareNativeResources')
+['checkLowYBaseSubmodule', 'verifyJniContract', 'prepareNativeResources', 'buildNative',
+ 'buildNativeCli', 'collectNativeCli', 'compileJava', 'processResources', 'buildMainJar'].each { taskName ->
+    tasks.named(taskName).configure { mustRunAfter clean }
 }

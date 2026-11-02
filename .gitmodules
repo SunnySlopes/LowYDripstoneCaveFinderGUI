@@ -1,3 +1,3 @@
-[submodule "jni/cubiomes"]
-	path = jni/cubiomes
-	url = https://github.com/xpple/cubiomes.git
+[submodule "LowYDripstoneCaveFinderBase"]
+	path = LowYDripstoneCaveFinderBase
+	url = https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase.git

@@ -11,8 +11,27 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * JNI bridge to native LowYDripstoneCaveFinder library.
- * Single-phase cave search at y=-60/-56/-52 (averaged); river area weighted by {@code riverWeight} into total.
+ * JNI bridge to the native LowYDripstoneCaveFinderBase library.
+ *
+ * <p>All C++/cubiomes computation lives in the {@code LowYDripstoneCaveFinderBase}
+ * submodule (Gradle project {@code :lowydripstonecavefinderbase}). This class is
+ * the Java side of the native contract:
+ * <ul>
+ *   <li>{@link #riverSearch} returns 5 ints per hit
+ *       ({@code x, z, total, cave, river}) or {@code null};</li>
+ *   <li>{@link #getSearchProgress} returns
+ *       {@code [current, total, phase, status, tryPause, tryStop]} or {@code null};</li>
+ *   <li>{@link #weirdnessYOffset} is the single, separate entry point for the
+ *       seed score. The GUI keeps the threshold comparison and the page-jump
+ *       decision.</li>
+ * </ul>
+ * The native header checked into
+ * {@code LowYDripstoneCaveFinderBase/jni/generated/sunnyslopes_lowydscavefinder_LowYDripstoneCaveFinderBridge.h}
+ * must match this file; the main module's {@code verifyJniContract} task
+ * enforces that.
+ *
+ * <p>The search is single-phase at y=-60/-56/-52 (averaged); river area is
+ * weighted by {@code riverWeight} into total.
  */
 public final class LowYDripstoneCaveFinderBridge {
 
@@ -24,38 +43,57 @@ public final class LowYDripstoneCaveFinderBridge {
 
     private static void loadNativeLibrary() {
         if (loaded) return;
+        UnsatisfiedLinkError firstError = null;
+
+        // Prefer a freshly built DLL over stale System.loadLibrary / JAR copies.
+        if (tryLoadFromProjectNativeDirs()) {
+            loaded = true;
+            return;
+        }
         try {
             System.loadLibrary("libDripstoneCaveFinderLibJ");
             loaded = true;
             return;
         } catch (UnsatisfiedLinkError e) {
-            UnsatisfiedLinkError firstError = e;
-            // Try loading from native library packaged inside the jar.
-            if (tryLoadFromBundledResources()) {
-                loaded = true;
-                return;
-            }
+            firstError = e;
+        }
+        if (tryLoadFromBundledResources()) {
+            loaded = true;
+            return;
+        }
+        throw new UnsatisfiedLinkError(
+            "DripstoneCaveFinder native library not found. Build with: gradlew buildNative "
+                + "(which delegates to :lowydripstonecavefinderbase:copyNativeArtifacts). "
+                + (firstError != null ? firstError.getMessage() : ""));
+    }
 
-            // Fallback: try build output directory
-            Path base = Paths.get(System.getProperty("user.dir", "."));
-            List<String> libNames = getNativeLibNamesForCurrentOs();
-            Path[] candidates = {
-                base.resolve("native"),
-                base.resolve("jni").resolve("native").resolve("jni").resolve("build"),
-                base.resolve("build").resolve("libs").resolve("native"),
-            };
-            for (Path dir : candidates) {
-                for (String libName : libNames) {
-                    File f = dir.resolve(libName).toFile();
-                    if (f.exists()) {
+    private static boolean tryLoadFromProjectNativeDirs() {
+        Path base = Paths.get(System.getProperty("user.dir", "."));
+        List<String> libNames = getNativeLibNamesForCurrentOs();
+        String osFolder = getOsResourceFolder();
+        Path[] candidates = {
+            base.resolve("native"),
+            base.resolve("build").resolve("native"),
+            // LowYDripstoneCaveFinderBase submodule build output.
+            base.resolve("LowYDripstoneCaveFinderBase").resolve("build").resolve("native"),
+            base.resolve("build").resolve("generated").resolve("native-resources")
+                .resolve("native").resolve(osFolder != null ? osFolder : "windows"),
+            base.resolve("build"),
+        };
+        for (Path dir : candidates) {
+            for (String libName : libNames) {
+                File f = dir.resolve(libName).toFile();
+                if (f.isFile()) {
+                    try {
                         System.load(f.getAbsolutePath());
-                        loaded = true;
-                        return;
+                        return true;
+                    } catch (UnsatisfiedLinkError ignored) {
+                        // try the next candidate
                     }
                 }
             }
-            throw new UnsatisfiedLinkError("DripstoneCaveFinder native library not found. Build with: jni/build-jni.bat. " + firstError.getMessage());
         }
+        return false;
     }
 
     private static boolean tryLoadFromBundledResources() {
@@ -102,34 +140,36 @@ public final class LowYDripstoneCaveFinderBridge {
             names.add("DripstoneCaveFinderLibJ.dll");
         } else if (os.contains("mac")) {
             names.add("libDripstoneCaveFinderLibJ.dylib");
+            names.add("DripstoneCaveFinderLibJ.dylib");
         } else {
             names.add("libDripstoneCaveFinderLibJ.so");
+            names.add("DripstoneCaveFinderLibJ.so");
         }
         return names;
     }
 
     /**
-     * Single-phase river search.
+     * Single-phase cave/river search.
+     *
      * @param seed world seed
-     * @param startX region start X
-     * @param startZ region start Z
-     * @param width region width
-     * @param height region height
+     * @param startX expanded native window start X (user minX - RING_OUTER)
+     * @param startZ expanded native window start Z (user minZ - RING_OUTER)
+     * @param width expanded native window width (user width + 2 * RING_OUTER)
+     * @param height expanded native window height (user height + 2 * RING_OUTER)
      * @param y ignored (native uses fixed heights -60/-56/-52)
      * @param minArea minimum weighted total area
-     * @param preserveRange reserved (legacy refinement coefficient; no longer truncates results)
-     * @param riverWeight river area weight in total = cave + river × riverWeight, range [0, 1]
+     * @param preserveRange phase-1 refinement coefficient (0.9 keeps the historical behaviour)
+     * @param riverWeight river area weight in total = cave + river * riverWeight, range [0, 1]
      * @param numThreads thread count ({@code <= 0} uses hardware concurrency in native)
      * @param mcVersion Minecraft version string for cubiomes (e.g. {@code "26.1"}, {@code "26.3"})
-     * @param contScale Phase-1 continentalness prefilter grid scale (e.g. 128 fast / 32 precise)
-     * @param weirdScale Phase-1 weirdness ring grid scale (e.g. 32 fast / 16 precise)
+     * @param contScale phase-1 continentalness prefilter grid scale (e.g. 128 fast / 32 precise)
+     * @param weirdScale phase-1 weirdness ring grid scale (e.g. 32 fast / 16 precise)
      * @param searchMode 0 fast grid, 1 precise grid, 2 full-map large-pit chains
-     * @return [x1, z1, total1, cave1, river1, x2, z2, total2, cave2, river2, ...] or null
+     * @return [x1, z1, total1, cave1, river1, x2, ...] or {@code null}
      */
     public static native int[] riverSearch(long seed, int startX, int startZ,
         int width, int height, int y, int minArea, float preserveRange, float riverWeight, int numThreads,
         String mcVersion, int contScale, int weirdScale, int searchMode);
-
 
     /**
      * Progress query. Returns {@code [current, total, phase, status, tryPause, tryStop]} or {@code null} if idle.
@@ -139,10 +179,8 @@ public final class LowYDripstoneCaveFinderBridge {
      */
     public static native int[] getSearchProgress();
 
-
     /**
-     * return now results.
-     * Reserved: returns [x1, z1, total1, cave1, river1, ...] (sorted), or null if not implemented.
+     * Returns now results as {@code [x1, z1, total1, cave1, river1, ...]} (sorted), or {@code null} if not implemented.
      */
     public static native int[] getNowResult();
 
@@ -157,11 +195,21 @@ public final class LowYDripstoneCaveFinderBridge {
     public static native boolean resume();
 
     /**
-     *Try to stop the task.
+     * Try to stop the task.
      */
     public static native boolean stop();
 
-
+    /**
+     * Weirdness y-offset score, computed by the base submodule.
+     *
+     * <p>score = |yo0A-0.5| + |yo1A-0.5| + |yo0B-0.5| + |yo1B-0.5|,
+     * yo = top 24 bits of the octave fork * 2^-24. The GUI owns the
+     * {@code 0.75} / {@code 0.85} threshold comparison and the page jump.
+     *
+     * @param seed world seed
+     * @return score in {@code [0, 2]}
+     */
+    public static native float weirdnessYOffset(long seed);
 
     private LowYDripstoneCaveFinderBridge() {}
 }

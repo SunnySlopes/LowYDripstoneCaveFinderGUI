@@ -426,7 +426,7 @@ public class LowYDripstoneCaveSearchRunner {
             }
         } catch (UnsatisfiedLinkError e) {
             if (resultCallback != null) {
-                resultCallback.accept("[Error] Native library not loaded. Build with: jni/build-jni.bat. " + e.getMessage());
+                resultCallback.accept("[Error] Native library not loaded. Build with: gradlew buildNative (LowYDripstoneCaveFinderBase). " + e.getMessage());
             }
         } finally {
             progressScheduler.shutdownNow();
