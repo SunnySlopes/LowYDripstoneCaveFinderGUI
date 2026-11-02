@@ -214,16 +214,21 @@ public class LowYDripstoneCaveSearchRunner {
         return Math.max(0, base - paused);
     }
 
-    /** Start river search for one seed. Runs in background thread. Returns false if another search is still active. */
+    /** Start river search for one seed. Runs in background thread. Returns false if another search is still active.
+     *
+     * @param allowGpu when {@code true}, native code may use the OpenCL backend if the
+     *     search area is large enough and a suitable device exists; otherwise (and when
+     *     no usable device is found) it silently runs the CPU path.
+     */
     public boolean startRiverSearch(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
                                  float riverWeight, int threadCount, boolean fastMode, String mcVersion,
-                                 int searchMode,
+                                 int searchMode, boolean allowGpu,
                                  Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         if (!tryAcquireActiveRunner()) {
             return false;
         }
         Thread t = new Thread(() -> runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount,
-                fastMode, mcVersion, searchMode, progressCallback, resultCallback),
+                fastMode, mcVersion, searchMode, allowGpu, progressCallback, resultCallback),
             "lowydripstonecavefinder-search");
         t.setDaemon(true);
         t.start();
@@ -233,13 +238,13 @@ public class LowYDripstoneCaveSearchRunner {
     /** Run river search for one seed on the current thread (for list search). Returns false if another search is still active. */
     public boolean runRiverSearchBlocking(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
                                        float riverWeight, int threadCount, boolean fastMode, String mcVersion,
-                                       int searchMode,
+                                       int searchMode, boolean allowGpu,
                                        Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         if (!tryAcquireActiveRunner()) {
             return false;
         }
         runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode, mcVersion,
-                searchMode, progressCallback, resultCallback);
+                searchMode, allowGpu, progressCallback, resultCallback);
         return true;
     }
 
@@ -263,7 +268,7 @@ public class LowYDripstoneCaveSearchRunner {
 
     private void runRiverSearch(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
                                float riverWeight, int threadCount, boolean fastMode, String mcVersion,
-                               int searchMode,
+                               int searchMode, boolean allowGpu,
                                Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         isRunning = true;
         isPaused = false;
@@ -402,7 +407,7 @@ public class LowYDripstoneCaveSearchRunner {
             int[] raw;
             synchronized (NATIVE_LOCK) {
                 raw = LowYDripstoneCaveFinderBridge.riverSearch(seed, startX, startZ, width, height, 0, minArea,
-                    DEFAULT_PRESERVE_RANGE, weight, threads, mc, contScale, weirdScale, mode);
+                    DEFAULT_PRESERVE_RANGE, weight, threads, mc, contScale, weirdScale, mode, allowGpu);
             }
 
             if (raw != null && resultCallback != null) {

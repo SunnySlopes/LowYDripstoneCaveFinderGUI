@@ -165,11 +165,14 @@ public final class LowYDripstoneCaveFinderBridge {
      * @param contScale phase-1 continentalness prefilter grid scale (e.g. 128 fast / 32 precise)
      * @param weirdScale phase-1 weirdness ring grid scale (e.g. 32 fast / 16 precise)
      * @param searchMode 0 fast grid, 1 precise grid, 2 full-map large-pit chains
+     * @param allowGpu {@code true} lets the native side use the OpenCL backend when the
+     *     window is large enough and a usable device exists; {@code false} never loads
+     *     OpenCL. An unusable device is silent: the CPU path yields the same results.
      * @return [x1, z1, total1, cave1, river1, x2, ...] or {@code null}
      */
     public static native int[] riverSearch(long seed, int startX, int startZ,
         int width, int height, int y, int minArea, float preserveRange, float riverWeight, int numThreads,
-        String mcVersion, int contScale, int weirdScale, int searchMode);
+        String mcVersion, int contScale, int weirdScale, int searchMode, boolean allowGpu);
 
     /**
      * Progress query. Returns {@code [current, total, phase, status, tryPause, tryStop]} or {@code null} if idle.

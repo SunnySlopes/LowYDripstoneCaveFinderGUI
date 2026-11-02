@@ -65,6 +65,10 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JLabel searchMinRiverRatioLabel;
     private JLabel searchRiverWeightLabel;
     private JCheckBox searchFastModeCheckBox;
+    /** "Allow GPU" opt-in: the native side uses OpenCL only when this is on, the
+     *  area gate passes and a usable device exists; otherwise it silently runs on
+     *  the CPU with identical results. */
+    private JCheckBox searchAllowGpuCheckBox;
     private JLabel searchMcVersionLabel;
     private JComboBox<String> searchMcVersionComboBox;
     private JLabel searchMinXLabel;
@@ -127,6 +131,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JLabel listSearchMinRiverRatioLabel;
     private JLabel listSearchRiverWeightLabel;
     private JCheckBox listFastModeCheckBox;
+    /** Same "Allow GPU" opt-in as the single-seed page; the list search is GPU capable. */
+    private JCheckBox listAllowGpuCheckBox;
     private JLabel listMcVersionLabel;
     private JComboBox<String> listMcVersionComboBox;
     private JLabel listSearchMinXLabel;
@@ -593,9 +599,21 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         inputPanel.add(searchFastModeCheckBox, gbc);
         gbc.gridwidth = 1;
 
-        // 语言选择下拉框
+        // 允许调用 GPU（需要面积够大且有可用设备，否则静默走 CPU）
         gbc.gridx = 0;
         gbc.gridy = 12;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        searchAllowGpuCheckBox = new JCheckBox(getString("label.allowGpu"), false);
+        searchAllowGpuCheckBox.setFont(getLoadedFont());
+        searchAllowGpuCheckBox.setToolTipText(getString("hint.allowGpuNote"));
+        inputPanel.add(searchAllowGpuCheckBox, gbc);
+        gbc.gridwidth = 1;
+
+        // 语言选择下拉框
+        gbc.gridx = 0;
+        gbc.gridy = 13;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         searchLanguageLabel = new JLabel(getString("label.language"));
@@ -836,6 +854,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 searchMinRiverRatioField.setEnabled(true);
                 searchRiverWeightField.setEnabled(true);
                 if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(true);
+                if (searchAllowGpuCheckBox != null) searchAllowGpuCheckBox.setEnabled(true);
                 if (searchMcVersionComboBox != null) searchMcVersionComboBox.setEnabled(true);
                 applyBoundFieldEnableState(true);
                 if (languageComboBox != null) {
@@ -1691,7 +1710,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             pitSearchRunner = new LowYDripstoneCaveSearchRunner();
             if (!pitSearchRunner.startRiverSearch(seed, minX, maxX, minZ, maxZ,
                     minArea, 0f, threadCount, false, selectedMcVersion(pitMcVersionComboBox),
-                    LowYDripstoneCaveSearchRunner.SEARCH_MODE_FULL_MAP_PIT,
+                    LowYDripstoneCaveSearchRunner.SEARCH_MODE_FULL_MAP_PIT, false,
                     info -> updatePitSearchProgress(resultToken, info),
                     line -> addPitResult(resultToken, line))) {
                 isPitSearchRunning = false;
@@ -2136,6 +2155,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             searchMinRiverRatioField.setEnabled(false);
             searchRiverWeightField.setEnabled(false);
             if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(false);
+            if (searchAllowGpuCheckBox != null) searchAllowGpuCheckBox.setEnabled(false);
             if (searchMcVersionComboBox != null) searchMcVersionComboBox.setEnabled(false);
             applyBoundFieldEnableState(false);
             if (languageComboBox != null) languageComboBox.setEnabled(false);
@@ -2151,6 +2171,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             if (!searchRunner.startRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode,
                 selectedMcVersion(searchMcVersionComboBox),
                 fastMode ? LowYDripstoneCaveSearchRunner.SEARCH_MODE_FAST : LowYDripstoneCaveSearchRunner.SEARCH_MODE_PRECISE,
+                searchAllowGpuCheckBox != null && searchAllowGpuCheckBox.isSelected(),
                 info -> updateCaveSearchProgress(resultToken, info),
                 line -> addSearchResult(resultToken, line))) {
                 isSearchRunning = false;
@@ -2613,6 +2634,18 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         inputPanel.add(listFastModeCheckBox, gbc);
         gbc.gridwidth = 1;
 
+        // 允许调用 GPU（列表页）
+        gbc.gridx = 0;
+        gbc.gridy = 12;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        listAllowGpuCheckBox = new JCheckBox(getString("label.allowGpu"), false);
+        listAllowGpuCheckBox.setFont(getLoadedFont());
+        listAllowGpuCheckBox.setToolTipText(getString("hint.allowGpuNote"));
+        inputPanel.add(listAllowGpuCheckBox, gbc);
+        gbc.gridwidth = 1;
+
         // 列表 Tab 内面积↔占比：仅 focusLost 时联动，避免输入时被覆盖
 
         // 按钮区域
@@ -2783,6 +2816,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchMinRiverRatioField.setEnabled(true);
         searchRiverWeightField.setEnabled(true);
         if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(true);
+        if (searchAllowGpuCheckBox != null) searchAllowGpuCheckBox.setEnabled(true);
         if (searchMcVersionComboBox != null) searchMcVersionComboBox.setEnabled(true);
         applyBoundFieldEnableState(true);
         if (languageComboBox != null) languageComboBox.setEnabled(true);
@@ -3024,6 +3058,10 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (searchFastModeCheckBox != null) {
             searchFastModeCheckBox.setText(getString("label.fastMode"));
         }
+        if (searchAllowGpuCheckBox != null) {
+            searchAllowGpuCheckBox.setText(getString("label.allowGpu"));
+            searchAllowGpuCheckBox.setToolTipText(getString("hint.allowGpuNote"));
+        }
         if (searchMcVersionLabel != null) {
             searchMcVersionLabel.setText(getString("label.mcVersion"));
         }
@@ -3129,6 +3167,10 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         }
         if (listFastModeCheckBox != null) {
             listFastModeCheckBox.setText(getString("label.fastMode"));
+        }
+        if (listAllowGpuCheckBox != null) {
+            listAllowGpuCheckBox.setText(getString("label.allowGpu"));
+            listAllowGpuCheckBox.setToolTipText(getString("hint.allowGpuNote"));
         }
         if (listMcVersionLabel != null) {
             listMcVersionLabel.setText(getString("label.mcVersion"));
@@ -3317,6 +3359,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 listMinRiverRatioField.setEnabled(true);
                 listRiverWeightField.setEnabled(true);
                 if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
+                if (listAllowGpuCheckBox != null) listAllowGpuCheckBox.setEnabled(true);
                 if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(true);
                 applyListBoundFieldEnableState(true);
                 listSearchResultToken.incrementAndGet();
@@ -3573,6 +3616,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             listMinRiverRatioField.setEnabled(false);
             listRiverWeightField.setEnabled(false);
             if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(false);
+            if (listAllowGpuCheckBox != null) listAllowGpuCheckBox.setEnabled(false);
             if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(false);
             applyListBoundFieldEnableState(false);
             final long listResultToken = listSearchResultToken.incrementAndGet();
@@ -3707,6 +3751,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
                     listSearchRunner.runRiverSearchBlocking(seed, minX, maxX, minZ, maxZ, finalMinArea, finalRiverWeight, finalThreadCount, finalFastMode, finalMcVersion,
                             finalFastMode ? LowYDripstoneCaveSearchRunner.SEARCH_MODE_FAST : LowYDripstoneCaveSearchRunner.SEARCH_MODE_PRECISE,
+                            listAllowGpuCheckBox != null && listAllowGpuCheckBox.isSelected(),
                             seedProgressCallback, seedResultCallback);
 
                     while (listSearchRunner.isRunning() && isListSearchRunning) {
@@ -3788,6 +3833,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                     listMinRiverRatioField.setEnabled(true);
                     listRiverWeightField.setEnabled(true);
                     if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
+                    if (listAllowGpuCheckBox != null) listAllowGpuCheckBox.setEnabled(true);
                     if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(true);
                     applyListBoundFieldEnableState(true);
                     listSearchProgressBar.setValue((int) totalSeeds);
@@ -3835,6 +3881,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         listMinRiverRatioField.setEnabled(true);
         listRiverWeightField.setEnabled(true);
         if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
+        if (listAllowGpuCheckBox != null) listAllowGpuCheckBox.setEnabled(true);
         if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(true);
         applyListBoundFieldEnableState(true);
         listSearchRemainingTimeLabel.setText(getString("remainingTime.stopped"));

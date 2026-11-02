@@ -164,7 +164,7 @@ gradlew buildDistribution
 `buildDistribution` runs the submodule checks and the JNI contract check, then
 builds:
 
-- `build\libs\LowYDripstoneCaveFinder-1.4.0.jar` — GUI fat JAR with the base DLL embedded
+- `build\libs\LowYDripstoneCaveFinder-1.4.1.jar` — GUI fat JAR with the base DLL embedded
 - `build\cli\lowydripstonecavefinder-cli.exe` — standalone CLI
 - `LowYDripstoneCaveFinderBase\build\native\libDripstoneCaveFinderLibJ.dll` — JNI library
 
@@ -175,7 +175,7 @@ DLL 由 `prepareNativeResources` 自动打入 JAR。
 Run the GUI:
 
 ```bat
-java -jar build\libs\LowYDripstoneCaveFinder-1.4.0.jar
+java -jar build\libs\LowYDripstoneCaveFinder-1.4.1.jar
 ```
 
 Or use `run.bat`. The standalone CLI can be run directly:
