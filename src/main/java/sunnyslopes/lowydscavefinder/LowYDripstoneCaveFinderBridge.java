@@ -30,8 +30,10 @@ import java.util.List;
  * must match this file; the main module's {@code verifyJniContract} task
  * enforces that.
  *
- * <p>The search is single-phase at y=-60/-56/-52 (averaged); river area is
- * weighted by {@code riverWeight} into total.
+ * <p>The search samples every layer in {@code [yMin, yMax]} and reports the
+ * per-layer average volume, so the weighted total keeps the 0..49640 scale
+ * regardless of the layer count.  River area is weighted by
+ * {@code riverWeight} into total.
  */
 public final class LowYDripstoneCaveFinderBridge {
 
@@ -149,14 +151,17 @@ public final class LowYDripstoneCaveFinderBridge {
     }
 
     /**
-     * Single-phase cave/river search.
+     * Volume-integrated cave/river search over an explicit layer window.
      *
      * @param seed world seed
      * @param startX expanded native window start X (user minX - RING_OUTER)
      * @param startZ expanded native window start Z (user minZ - RING_OUTER)
      * @param width expanded native window width (user width + 2 * RING_OUTER)
      * @param height expanded native window height (user height + 2 * RING_OUTER)
-     * @param y ignored (native uses fixed heights -60/-56/-52)
+     * @param yMin lowest sampled layer (>= -63)
+     * @param yMax highest sampled layer (<= 319); {@code yMax - yMin + 1 <= 48}
+     * @param coarseY coarse-stage recall height (carried for protocol compatibility;
+     *     the climate prefilter of this engine is Y-independent)
      * @param minArea minimum weighted total area
      * @param preserveRange phase-1 refinement coefficient (0.9 keeps the historical behaviour)
      * @param riverWeight river area weight in total = cave + river * riverWeight, range [0, 1]
@@ -171,8 +176,9 @@ public final class LowYDripstoneCaveFinderBridge {
      * @return [x1, z1, total1, cave1, river1, x2, ...] or {@code null}
      */
     public static native int[] riverSearch(long seed, int startX, int startZ,
-        int width, int height, int y, int minArea, float preserveRange, float riverWeight, int numThreads,
-        String mcVersion, int contScale, int weirdScale, int searchMode, boolean allowGpu);
+        int width, int height, int yMin, int yMax, int coarseY, int minArea, float preserveRange,
+        float riverWeight, int numThreads, String mcVersion, int contScale, int weirdScale,
+        int searchMode, boolean allowGpu);
 
     /**
      * Progress query. Returns {@code [current, total, phase, status, tryPause, tryStop]} or {@code null} if idle.

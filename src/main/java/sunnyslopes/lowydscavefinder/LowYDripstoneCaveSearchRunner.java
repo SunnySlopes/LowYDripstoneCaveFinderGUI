@@ -57,8 +57,31 @@ public class LowYDripstoneCaveSearchRunner {
     /** Max search area (blocks). */
     public static final long MAX_SEARCH_AREA_BLOCKS = 60_000_001L * 60_000_001L;
 
-    /** Default river weight in total = cave + river × weight. */
-    public static final float DEFAULT_RIVER_WEIGHT = 0.75f;
+    /** Default river weight in total = cave + river × weight (GUI pages use 0.7, B3). */
+    public static final float DEFAULT_RIVER_WEIGHT = 0.7f;
+
+    /** Precise layer window: sampled layers [yMin, yMax] (B1). */
+    public static final int DEFAULT_Y_MIN = -63;
+    public static final int DEFAULT_Y_MAX = -51;
+    /** Coarse-stage recall height; the climate prefilter is Y-independent today. */
+    public static final int DEFAULT_COARSE_Y = -51;
+    /** Layer bounds accepted by the native engine. */
+    public static final int Y_LIMIT_MIN = -63;
+    public static final int Y_LIMIT_MAX = 319;
+    /** Hard cap of the layer span (yMax - yMin + 1); larger spans are rejected. */
+    public static final int MAX_Y_SPAN = 48;
+
+    /** @return layer count of the window, clamped to the hard cap. */
+    public static int layerCount(int yMin, int yMax) {
+        int layers = yMax - yMin + 1;
+        if (layers < 1) return 1;
+        return Math.min(layers, MAX_Y_SPAN);
+    }
+
+    /** Result-set model tag, e.g. {@code drowned-weighted-volume-b/13}. */
+    public static String modelId(int yMin, int yMax) {
+        return "drowned-weighted-volume-b/" + layerCount(yMin, yMax);
+    }
 
     /** Matches native refinement threshold coefficient (opV); retained for JNI compatibility. */
     public static final float DEFAULT_PRESERVE_RANGE = 0.9f;
@@ -221,14 +244,14 @@ public class LowYDripstoneCaveSearchRunner {
      *     no usable device is found) it silently runs the CPU path.
      */
     public boolean startRiverSearch(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
-                                 float riverWeight, int threadCount, boolean fastMode, String mcVersion,
+                                 float riverWeight, int yMin, int yMax, int threadCount, boolean fastMode, String mcVersion,
                                  int searchMode, boolean allowGpu,
                                  Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         if (!tryAcquireActiveRunner()) {
             return false;
         }
-        Thread t = new Thread(() -> runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount,
-                fastMode, mcVersion, searchMode, allowGpu, progressCallback, resultCallback),
+        Thread t = new Thread(() -> runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, yMin, yMax,
+                threadCount, fastMode, mcVersion, searchMode, allowGpu, progressCallback, resultCallback),
             "lowydripstonecavefinder-search");
         t.setDaemon(true);
         t.start();
@@ -237,13 +260,13 @@ public class LowYDripstoneCaveSearchRunner {
 
     /** Run river search for one seed on the current thread (for list search). Returns false if another search is still active. */
     public boolean runRiverSearchBlocking(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
-                                       float riverWeight, int threadCount, boolean fastMode, String mcVersion,
+                                       float riverWeight, int yMin, int yMax, int threadCount, boolean fastMode, String mcVersion,
                                        int searchMode, boolean allowGpu,
                                        Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         if (!tryAcquireActiveRunner()) {
             return false;
         }
-        runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode, mcVersion,
+        runRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, yMin, yMax, threadCount, fastMode, mcVersion,
                 searchMode, allowGpu, progressCallback, resultCallback);
         return true;
     }
@@ -267,7 +290,7 @@ public class LowYDripstoneCaveSearchRunner {
     }
 
     private void runRiverSearch(long seed, int minX, int maxX, int minZ, int maxZ, int minArea,
-                               float riverWeight, int threadCount, boolean fastMode, String mcVersion,
+                               float riverWeight, int yMin, int yMax, int threadCount, boolean fastMode, String mcVersion,
                                int searchMode, boolean allowGpu,
                                Consumer<ProgressInfo> progressCallback, Consumer<String> resultCallback) {
         isRunning = true;
@@ -276,6 +299,23 @@ public class LowYDripstoneCaveSearchRunner {
         pauseStartMs = 0;
         runStartTimeMs = System.currentTimeMillis();
         int threads = Math.max(1, Math.min(threadCount, Runtime.getRuntime().availableProcessors()));
+
+        /* Hard layer-window validation (B1): never reach native with an
+         * impossible span.  The GUI checks first; this is the API backstop. */
+        int yLayers = yMax - yMin + 1;
+        if (yMin > yMax || yMin < Y_LIMIT_MIN || yMax > Y_LIMIT_MAX || yLayers > MAX_Y_SPAN) {
+            isRunning = false;
+            releaseActiveRunner();
+            if (resultCallback != null) {
+                resultCallback.accept("[Error] Invalid Y range " + yMin + ".." + yMax
+                    + " (span " + yLayers + "); need " + Y_LIMIT_MIN + " <= yMin <= yMax <= "
+                    + Y_LIMIT_MAX + " and span <= " + MAX_Y_SPAN + ".");
+            }
+            if (progressCallback != null) {
+                progressCallback.accept(ProgressInfo.terminal(getElapsedMs(), 0, 1));
+            }
+            return;
+        }
 
         long searchWidth = (long) (maxX - minX) + 1;
         long searchHeight = (long) (maxZ - minZ) + 1;
@@ -406,7 +446,8 @@ public class LowYDripstoneCaveSearchRunner {
             String mc = toCubiomesMcVersion(uiMc);
             int[] raw;
             synchronized (NATIVE_LOCK) {
-                raw = LowYDripstoneCaveFinderBridge.riverSearch(seed, startX, startZ, width, height, 0, minArea,
+                raw = LowYDripstoneCaveFinderBridge.riverSearch(seed, startX, startZ, width, height,
+                    yMin, yMax, DEFAULT_COARSE_Y, minArea,
                     DEFAULT_PRESERVE_RANGE, weight, threads, mc, contScale, weirdScale, mode, allowGpu);
             }
 

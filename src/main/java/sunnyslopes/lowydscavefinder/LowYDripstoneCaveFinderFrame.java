@@ -43,6 +43,11 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
      */
     private static final int MIN_RIVER_AREA_UI_FAST = (int) (RIVER_AREA_FULL * 0.60);
     private static final int MIN_RIVER_AREA_UI_PRECISE = (int) (RIVER_AREA_FULL * 0.40);
+    /**
+     * Default minimum weighted area: 70% of the full ring (34748).  The volume
+     * integral scores ~2% below the old 3-layer majority vote, so 70% is the
+     * product default requested after the B1 calibration.
+     */
     private static final int DEFAULT_RIVER_AREA_UI = (int) (RIVER_AREA_FULL * 0.70);
     /** Area/ratio applied when resetting bounds to the world border. */
     private static final int WORLD_BORDER_RIVER_AREA_UI = (int) (RIVER_AREA_FULL * 0.90);
@@ -56,7 +61,17 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private static final int DEFAULT_PIT_AREA_UI = (int) (RIVER_AREA_FULL * 0.90);
     private static final double MIN_PIT_RATIO_UI = MIN_PIT_AREA_UI / RIVER_AREA_FULL * 100.0;
     private static final double DEFAULT_PIT_RATIO_UI = DEFAULT_PIT_AREA_UI / RIVER_AREA_FULL * 100.0;
-    private static final float DEFAULT_RIVER_WEIGHT_UI = 0.75f;
+    private static final float DEFAULT_RIVER_WEIGHT_UI = 0.7f;
+
+    // 精采样层范围（B1）：采样 yMin..yMax 的每一层，按体积积分取逐层平均
+    private static final int DEFAULT_Y_MIN_UI = LowYDripstoneCaveSearchRunner.DEFAULT_Y_MIN;
+    private static final int DEFAULT_Y_MAX_UI = LowYDripstoneCaveSearchRunner.DEFAULT_Y_MAX;
+    private static final int Y_LIMIT_MIN_UI = LowYDripstoneCaveSearchRunner.Y_LIMIT_MIN;
+    private static final int Y_LIMIT_MAX_UI = LowYDripstoneCaveSearchRunner.Y_LIMIT_MAX;
+    private static final int MAX_Y_SPAN_UI = LowYDripstoneCaveSearchRunner.MAX_Y_SPAN;
+    /** 软警告阈值（不阻断）：跨度 > 24 层会明显变慢；最低层高于 -58 不满足低Y农场前提。 */
+    private static final int Y_SOFT_SPAN_UI = 24;
+    private static final int Y_SOFT_MIN_UI = -58;
 
     // 单种子搜索相关组件
     private JLabel searchSeedLabel;
@@ -75,12 +90,16 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JLabel searchMaxXLabel;
     private JLabel searchMinZLabel;
     private JLabel searchMaxZLabel;
+    private JLabel searchYMinLabel;
+    private JLabel searchYMaxLabel;
     private JLabel searchLanguageLabel;
     private JTextField searchSeedField;
     private JTextField searchThreadCountField;
     private JTextField searchMinRiverAreaField;
     private JTextField searchMinRiverRatioField;
     private JTextField searchRiverWeightField;
+    private JTextField searchYMinField;
+    private JTextField searchYMaxField;
     private JTextField minXField;
     private JTextField maxXField;
     private JTextField minZField;
@@ -115,6 +134,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private int lastSearchMaxZ = 0;
     private int lastSearchMinArea = 0;
     private int lastSearchThreadCount = 0;
+    private int lastSearchYMin = DEFAULT_Y_MIN_UI;
+    private int lastSearchYMax = DEFAULT_Y_MAX_UI;
     /**
      * Monotonic token: increment before clearing single-seed results, again on stop/done so any
      * invokeLater from a previous run sees token mismatch and does not append (fixes stale lines after new search).
@@ -139,11 +160,15 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JLabel listSearchMaxXLabel;
     private JLabel listSearchMinZLabel;
     private JLabel listSearchMaxZLabel;
+    private JLabel listSearchYMinLabel;
+    private JLabel listSearchYMaxLabel;
     private File selectedSeedFile;
     private JTextField listSearchThreadCountField;
     private JTextField listMinRiverAreaField;
     private JTextField listMinRiverRatioField;
     private JTextField listRiverWeightField;
+    private JTextField listYMinField;
+    private JTextField listYMaxField;
     private JTextField listMinXField;
     private JTextField listMaxXField;
     private JTextField listMinZField;
@@ -174,6 +199,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private int lastListSearchMaxZ = 0;
     private int lastListSearchMinArea = 0;
     private int lastListSearchThreadCount = 0;
+    private int lastListSearchYMin = DEFAULT_Y_MIN_UI;
+    private int lastListSearchYMax = DEFAULT_Y_MAX_UI;
     // 存储每个种子的结果
     private final Map<Long, List<String>> seedResults = new HashMap<>();
 
@@ -187,6 +214,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JLabel pitMaxXLabel;
     private JLabel pitMinZLabel;
     private JLabel pitMaxZLabel;
+    private JLabel pitYMinLabel;
+    private JLabel pitYMaxLabel;
     private JTextField pitSeedField;
     private JTextField pitThreadCountField;
     private JTextField pitMinRiverAreaField;
@@ -195,6 +224,10 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private JTextField pitMaxXField;
     private JTextField pitMinZField;
     private JTextField pitMaxZField;
+    private JTextField pitYMinField;
+    private JTextField pitYMaxField;
+    private int lastPitYMin = DEFAULT_Y_MIN_UI;
+    private int lastPitYMax = DEFAULT_Y_MAX_UI;
     private JCheckBox pitSquareSideCheckBox;
     private JTextField pitSquareSideField;
     private boolean pitSquareSideUpdating = false;
@@ -457,9 +490,40 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         });
         inputPanel.add(searchRiverWeightField, gbc);
 
-        // MinX 输入
+        // 精采样 Y 范围下限（B1）
+        gbc.gridx = 0;
+        gbc.gridy = 6;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        searchYMinLabel = new JLabel(getString("label.yMin"));
+        searchYMinLabel.setFont(getLoadedFont());
+        inputPanel.add(searchYMinLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        searchYMinField = new JTextField(String.valueOf(DEFAULT_Y_MIN_UI), 20);
+        searchYMinField.setToolTipText(getString("hint.yRange"));
+        inputPanel.add(searchYMinField, gbc);
+
+        // 精采样 Y 范围上限（B1）
         gbc.gridx = 0;
         gbc.gridy = 5;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        searchYMaxLabel = new JLabel(getString("label.yMax"));
+        searchYMaxLabel.setFont(getLoadedFont());
+        inputPanel.add(searchYMaxLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        searchYMaxField = new JTextField(String.valueOf(DEFAULT_Y_MAX_UI), 20);
+        searchYMaxField.setToolTipText(getString("hint.yRange"));
+        inputPanel.add(searchYMaxField, gbc);
+        attachYRangeValidation(searchYMinField, searchYMaxField);
+
+        // MinX 输入
+        gbc.gridx = 0;
+        gbc.gridy = 7;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         JLabel minXLabel = new JLabel(getString("label.minX"));
@@ -479,7 +543,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // MaxX 输入
         gbc.gridx = 0;
-        gbc.gridy = 6;
+        gbc.gridy = 8;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         JLabel maxXLabel = new JLabel(getString("label.maxX"));
@@ -498,7 +562,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // MinZ 输入
         gbc.gridx = 0;
-        gbc.gridy = 7;
+        gbc.gridy = 9;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         JLabel minZLabel = new JLabel(getString("label.minZ"));
@@ -517,7 +581,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // MaxZ 输入
         gbc.gridx = 0;
-        gbc.gridy = 8;
+        gbc.gridy = 10;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         JLabel maxZLabel = new JLabel(getString("label.maxZ"));
@@ -536,7 +600,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // 正方形区域边长（勾选后按中心 0,0 填入 min/max）
         gbc.gridx = 0;
-        gbc.gridy = 9;
+        gbc.gridy = 11;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         squareSideCheckBox = new JCheckBox(getString("label.squareSide"));
@@ -573,7 +637,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // Minecraft 版本
         gbc.gridx = 0;
-        gbc.gridy = 10;
+        gbc.gridy = 12;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         searchMcVersionLabel = new JLabel(getString("label.mcVersion"));
@@ -589,7 +653,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // 快速模式（语言选项上方）
         gbc.gridx = 0;
-        gbc.gridy = 11;
+        gbc.gridy = 13;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
@@ -601,7 +665,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // 允许调用 GPU（需要面积够大且有可用设备，否则静默走 CPU）
         gbc.gridx = 0;
-        gbc.gridy = 12;
+        gbc.gridy = 14;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
@@ -613,7 +677,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // 语言选择下拉框
         gbc.gridx = 0;
-        gbc.gridy = 13;
+        gbc.gridy = 15;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         searchLanguageLabel = new JLabel(getString("label.language"));
@@ -701,7 +765,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchRightPanel.setBorder(BorderFactory.createTitledBorder(getString("result.border")));
         searchResultArea = new JTextArea();
         searchResultArea.setEditable(false);
-        searchResultArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        searchResultArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 10));
         JScrollPane scrollPane = new JScrollPane(searchResultArea);
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
         JPanel exportSortPanel = new JPanel(new FlowLayout());
@@ -831,12 +895,19 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             int maxX = Integer.parseInt(maxXField.getText().trim());
             int minZ = Integer.parseInt(minZField.getText().trim());
             int maxZ = Integer.parseInt(maxZField.getText().trim());
+            YRange yRange = parseYRangeValues(searchYMinField, searchYMaxField);
+            boolean yChanged = yRange != null
+                    && (yRange.yMin() != lastSearchYMin || yRange.yMax() != lastSearchYMax);
 
             // 如果参数变化且处于暂停状态，重置进度（线程数变化不触发重置）
             if (minArea < 0) minArea = 0;
             if (seed != lastSearchSeed || minX != lastSearchMinX ||
                     maxX != lastSearchMaxX || minZ != lastSearchMinZ || maxZ != lastSearchMaxZ ||
-                    minArea != lastSearchMinArea) {
+                    minArea != lastSearchMinArea || yChanged) {
+                if (yRange != null) {
+                    lastSearchYMin = yRange.yMin();
+                    lastSearchYMax = yRange.yMax();
+                }
                 if (searchRunner != null) {
                     searchRunner.stop();
                 }
@@ -853,6 +924,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 searchMinRiverAreaField.setEnabled(true);
                 searchMinRiverRatioField.setEnabled(true);
                 searchRiverWeightField.setEnabled(true);
+                setYRangeFieldsEnabled(true, false);
                 if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(true);
                 if (searchAllowGpuCheckBox != null) searchAllowGpuCheckBox.setEnabled(true);
                 if (searchMcVersionComboBox != null) searchMcVersionComboBox.setEnabled(true);
@@ -1007,6 +1079,138 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         field.setText(String.format("%.2f", w));
     }
 
+    // ------------------------------------------------------------------
+    // 精采样层范围（B1）：yMin / yMax 输入框
+    // ------------------------------------------------------------------
+
+    /** 已校验的层范围；layers = yMax - yMin + 1。 */
+    private record YRange(int yMin, int yMax) {
+        int layers() {
+            return yMax - yMin + 1;
+        }
+    }
+
+    /** 输入变化时实时标红：非法范围（非整数/倒置/越界/跨度>48）背景变红。 */
+    private void attachYRangeValidation(JTextField minField, JTextField maxField) {
+        if (minField == null || maxField == null) return;
+        javax.swing.event.DocumentListener listener = new javax.swing.event.DocumentListener() {
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                refreshYRangeFieldStyle(minField, maxField);
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                refreshYRangeFieldStyle(minField, maxField);
+            }
+
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                refreshYRangeFieldStyle(minField, maxField);
+            }
+        };
+        minField.getDocument().addDocumentListener(listener);
+        maxField.getDocument().addDocumentListener(listener);
+        refreshYRangeFieldStyle(minField, maxField);
+    }
+
+    private void refreshYRangeFieldStyle(JTextField minField, JTextField maxField) {
+        boolean valid = parseYRangeValues(minField, maxField) != null;
+        Color ok = UIManager.getColor("TextField.background");
+        if (ok == null) ok = Color.WHITE;
+        Color bad = new Color(255, 205, 205);
+        minField.setBackground(valid ? ok : bad);
+        maxField.setBackground(valid ? ok : bad);
+    }
+
+    /** 解析并硬校验 Y 范围，不弹窗；非法返回 null。 */
+    private YRange parseYRangeValues(JTextField minField, JTextField maxField) {
+        if (minField == null || maxField == null) {
+            return new YRange(DEFAULT_Y_MIN_UI, DEFAULT_Y_MAX_UI);
+        }
+        try {
+            int yMin = Integer.parseInt(minField.getText().trim());
+            int yMax = Integer.parseInt(maxField.getText().trim());
+            if (yMin > yMax) return null;
+            if (yMin < Y_LIMIT_MIN_UI || yMax > Y_LIMIT_MAX_UI) return null;
+            if (yMax - yMin + 1 > MAX_Y_SPAN_UI) return null;
+            return new YRange(yMin, yMax);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * 点击“开始搜索”后、进入 native 前调用：硬校验失败直接报错返回 null；
+     * 通过后弹出两条不阻断流程的软警告。
+     */
+    private YRange readAndValidateYRange(JTextField minField, JTextField maxField) {
+        if (minField == null || maxField == null) {
+            return new YRange(DEFAULT_Y_MIN_UI, DEFAULT_Y_MAX_UI);
+        }
+        int yMin;
+        int yMax;
+        try {
+            yMin = Integer.parseInt(minField.getText().trim());
+            yMax = Integer.parseInt(maxField.getText().trim());
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, getString("error.yRangeInteger"),
+                    getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+            return null;
+        }
+        if (yMin > yMax) {
+            JOptionPane.showMessageDialog(this, getString("error.yMinGreaterThanYMax"),
+                    getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+            return null;
+        }
+        if (yMin < Y_LIMIT_MIN_UI || yMax > Y_LIMIT_MAX_UI) {
+            JOptionPane.showMessageDialog(this,
+                    getString("error.yRangeOutOfBounds", Y_LIMIT_MIN_UI, Y_LIMIT_MAX_UI, yMin, yMax),
+                    getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+            return null;
+        }
+        final int layers = yMax - yMin + 1;
+        if (layers > MAX_Y_SPAN_UI) {
+            JOptionPane.showMessageDialog(this,
+                    getString("error.ySpanTooLarge", layers, MAX_Y_SPAN_UI),
+                    getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+            return null;
+        }
+        showYRangeSoftWarnings(yMin, yMax);
+        return new YRange(yMin, yMax);
+    }
+
+    /** 软警告：不阻断流程，单按钮“继续”。 */
+    private void showYRangeSoftWarnings(int yMin, int yMax) {
+        Object[] options = {getString("button.resume")};
+        if (yMax - yMin + 1 > Y_SOFT_SPAN_UI) {
+            JOptionPane.showOptionDialog(this,
+                    getString("dialog.yRange.wide", yMax - yMin + 1),
+                    getString("prompt.warning"), JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+        }
+        if (yMin > Y_SOFT_MIN_UI) {
+            JOptionPane.showOptionDialog(this,
+                    getString("dialog.yRange.lowMin", yMin),
+                    getString("prompt.warning"), JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+        }
+    }
+
+    private void setYRangeFieldsEnabled(boolean enabled, boolean listTab) {
+        if (listTab) {
+            if (listYMinField != null) listYMinField.setEnabled(enabled);
+            if (listYMaxField != null) listYMaxField.setEnabled(enabled);
+        } else {
+            if (searchYMinField != null) searchYMinField.setEnabled(enabled);
+            if (searchYMaxField != null) searchYMaxField.setEnabled(enabled);
+        }
+    }
+
+    /** 结果导出的模型标识（层数变化后结果不可比，导出必须带）。 */
+    private String modelTag(boolean listTab) {
+        int yMin = listTab ? lastListSearchYMin : lastSearchYMin;
+        int yMax = listTab ? lastListSearchYMax : lastSearchYMax;
+        return LowYDripstoneCaveSearchRunner.modelId(yMin, yMax);
+    }
+
     // 排序搜索结果（按加权总面积 total 从大到小；行格式含 s= total cave= river=）
 
     /**
@@ -1140,13 +1344,44 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         });
         inputPanel.add(pitMinRiverRatioField, gbc);
 
-        addPitBoundRow(inputPanel, gbc, 4, "label.minX", BOUNDARY_MIN_X);
-        addPitBoundRow(inputPanel, gbc, 5, "label.maxX", BOUNDARY_MAX_X);
-        addPitBoundRow(inputPanel, gbc, 6, "label.minZ", BOUNDARY_MIN_Z);
-        addPitBoundRow(inputPanel, gbc, 7, "label.maxZ", BOUNDARY_MAX_Z);
+        // 精采样 Y 范围上限（B1；与大坑精算共用的体积积分层范围）
+        gbc.gridx = 0;
+        gbc.gridy = 4;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        pitYMaxLabel = new JLabel(getString("label.yMax"));
+        pitYMaxLabel.setFont(getLoadedFont());
+        inputPanel.add(pitYMaxLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        pitYMaxField = new JTextField(String.valueOf(DEFAULT_Y_MAX_UI), 20);
+        pitYMaxField.setToolTipText(getString("hint.yRange"));
+        inputPanel.add(pitYMaxField, gbc);
+
+        // 精采样 Y 范围下限（B1）
+        gbc.gridx = 0;
+        gbc.gridy = 5;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        pitYMinLabel = new JLabel(getString("label.yMin"));
+        pitYMinLabel.setFont(getLoadedFont());
+        inputPanel.add(pitYMinLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        pitYMinField = new JTextField(String.valueOf(DEFAULT_Y_MIN_UI), 20);
+        pitYMinField.setToolTipText(getString("hint.yRange"));
+        inputPanel.add(pitYMinField, gbc);
+        attachYRangeValidation(pitYMinField, pitYMaxField);
+
+        addPitBoundRow(inputPanel, gbc, 6, "label.minX", BOUNDARY_MIN_X);
+        addPitBoundRow(inputPanel, gbc, 7, "label.maxX", BOUNDARY_MAX_X);
+        addPitBoundRow(inputPanel, gbc, 8, "label.minZ", BOUNDARY_MIN_Z);
+        addPitBoundRow(inputPanel, gbc, 9, "label.maxZ", BOUNDARY_MAX_Z);
 
         gbc.gridx = 0;
-        gbc.gridy = 8;
+        gbc.gridy = 10;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         pitSquareSideCheckBox = new JCheckBox(getString("label.squareSide"));
@@ -1182,7 +1417,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         applyPitSquareSideToBounds();
 
         gbc.gridx = 0;
-        gbc.gridy = 9;
+        gbc.gridy = 11;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         pitMcVersionLabel = new JLabel(getString("label.mcVersion"));
@@ -1197,7 +1432,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         inputPanel.add(pitMcVersionComboBox, gbc);
 
         gbc.gridx = 0;
-        gbc.gridy = 10;
+        gbc.gridy = 12;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         pitLanguageLabel = new JLabel(getString("label.language"));
@@ -1437,6 +1672,13 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (pitMinRiverRatioField != null) {
             pitMinRiverRatioField.setText(String.format("%.2f", DEFAULT_PIT_RATIO_UI));
         }
+        // 精采样 Y 范围跟着跳转，避免大坑页悄悄换回默认窗口
+        if (pitYMinField != null && searchYMinField != null) {
+            pitYMinField.setText(searchYMinField.getText().trim());
+        }
+        if (pitYMaxField != null && searchYMaxField != null) {
+            pitYMaxField.setText(searchYMaxField.getText().trim());
+        }
         if (tabbedPane != null && tabbedPane.getTabCount() > 2) {
             tabbedPane.setSelectedIndex(2);
         }
@@ -1488,6 +1730,12 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (searchRiverWeightField != null && searchRiverWeightField.getText().trim().isEmpty()) {
             searchRiverWeightField.setText(String.format("%.2f", DEFAULT_RIVER_WEIGHT_UI));
         }
+        if (searchYMinField != null && pitYMinField != null) {
+            searchYMinField.setText(pitYMinField.getText().trim());
+        }
+        if (searchYMaxField != null && pitYMaxField != null) {
+            searchYMaxField.setText(pitYMaxField.getText().trim());
+        }
         if (tabbedPane != null) {
             tabbedPane.setSelectedIndex(0);
         }
@@ -1509,6 +1757,12 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         }
         if (pitMinRiverRatioField != null) {
             pitMinRiverRatioField.setText(String.format("%.2f", DEFAULT_PIT_RATIO_UI));
+        }
+        if (pitYMinField != null) {
+            pitYMinField.setText(String.valueOf(DEFAULT_Y_MIN_UI));
+        }
+        if (pitYMaxField != null) {
+            pitYMaxField.setText(String.valueOf(DEFAULT_Y_MAX_UI));
         }
         resetPitCoordinatesToWorldBorder();
         if (pitResultArea != null) {
@@ -1654,6 +1908,11 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 JOptionPane.showMessageDialog(this, getString("error.minRiverAreaInvalid"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
+            // 大坑精算同样按配置的 Y 范围做体积积分
+            YRange yRange = readAndValidateYRange(pitYMinField, pitYMaxField);
+            if (yRange == null) {
+                return;
+            }
             Integer minX = parsePitBound(pitMinXField, "error.minXMustBeInteger", "error.minXFormatError", BOUNDARY_MIN_X);
             Integer maxX = parsePitBound(pitMaxXField, "error.maxXMustBeInteger", "error.maxXFormatError", BOUNDARY_MAX_X);
             Integer minZ = parsePitBound(pitMinZField, "error.minZMustBeInteger", "error.minZFormatError", BOUNDARY_MIN_Z);
@@ -1695,6 +1954,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             }
             isPitSearchRunning = true;
             isPitSearchPaused = false;
+            lastPitYMin = yRange.yMin();
+            lastPitYMax = yRange.yMax();
             setPitControlsEnabled(false);
             pitPauseButton.setEnabled(true);
             pitPauseButton.setText(getString("button.pause"));
@@ -1709,7 +1970,10 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
             pitSearchRunner = new LowYDripstoneCaveSearchRunner();
             if (!pitSearchRunner.startRiverSearch(seed, minX, maxX, minZ, maxZ,
-                    minArea, 0f, threadCount, false, selectedMcVersion(pitMcVersionComboBox),
+                    minArea, 0f,
+                    yRange.yMin(),
+                    yRange.yMax(),
+                    threadCount, false, selectedMcVersion(pitMcVersionComboBox),
                     LowYDripstoneCaveSearchRunner.SEARCH_MODE_FULL_MAP_PIT, false,
                     info -> updatePitSearchProgress(resultToken, info),
                     line -> addPitResult(resultToken, line))) {
@@ -1738,6 +2002,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (pitThreadCountField != null) pitThreadCountField.setEnabled(enabled);
         if (pitMinRiverAreaField != null) pitMinRiverAreaField.setEnabled(enabled);
         if (pitMinRiverRatioField != null) pitMinRiverRatioField.setEnabled(enabled);
+        if (pitYMinField != null) pitYMinField.setEnabled(enabled);
+        if (pitYMaxField != null) pitYMaxField.setEnabled(enabled);
         applyPitBoundFieldEnableState(enabled);
         if (pitResetCoordinatesButton != null) pitResetCoordinatesButton.setEnabled(enabled);
         if (pitMcVersionComboBox != null) pitMcVersionComboBox.setEnabled(enabled);
@@ -1866,6 +2132,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
             File file = fileChooser.getSelectedFile();
             try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
+                writer.print("# model="
+                        + LowYDripstoneCaveSearchRunner.modelId(lastPitYMin, lastPitYMax) + "\n");
                 writer.print(resultText);
                 JOptionPane.showMessageDialog(this, getString("success.export"), getString("prompt.success"), JOptionPane.INFORMATION_MESSAGE);
             } catch (IOException ex) {
@@ -1879,6 +2147,10 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (pitThreadCountLabel != null) pitThreadCountLabel.setText(getString("label.threadCount"));
         if (pitMinRiverAreaLabel != null) pitMinRiverAreaLabel.setText(getString("label.minRiverArea"));
         if (pitMinRiverRatioLabel != null) pitMinRiverRatioLabel.setText(getString("label.minRiverRatio"));
+        if (pitYMinLabel != null) pitYMinLabel.setText(getString("label.yMin"));
+        if (pitYMaxLabel != null) pitYMaxLabel.setText(getString("label.yMax"));
+        if (pitYMinField != null) pitYMinField.setToolTipText(getString("hint.yRange"));
+        if (pitYMaxField != null) pitYMaxField.setToolTipText(getString("hint.yRange"));
         if (pitMcVersionLabel != null) pitMcVersionLabel.setText(getString("label.mcVersion"));
         if (pitMinXLabel != null) pitMinXLabel.setText(getString("label.minX"));
         if (pitMaxXLabel != null) pitMaxXLabel.setText(getString("label.maxX"));
@@ -2004,6 +2276,12 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             float riverWeight = parseRiverWeight(searchRiverWeightField);
             if (riverWeight < 0) {
                 JOptionPane.showMessageDialog(this, getString("error.riverWeightInvalid"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            // 精采样层范围（B1）：硬校验 + 两条非阻断软警告
+            YRange yRange = readAndValidateYRange(searchYMinField, searchYMaxField);
+            if (yRange == null) {
                 return;
             }
 
@@ -2140,6 +2418,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             lastSearchMaxZ = maxZ;
             lastSearchMinArea = minArea;
             lastSearchThreadCount = threadCount;
+            lastSearchYMin = yRange.yMin();
+            lastSearchYMax = yRange.yMax();
 
             isSearchRunning = true;
             isSearchPaused = false;
@@ -2154,6 +2434,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             searchMinRiverAreaField.setEnabled(false);
             searchMinRiverRatioField.setEnabled(false);
             searchRiverWeightField.setEnabled(false);
+            setYRangeFieldsEnabled(false, false);
             if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(false);
             if (searchAllowGpuCheckBox != null) searchAllowGpuCheckBox.setEnabled(false);
             if (searchMcVersionComboBox != null) searchMcVersionComboBox.setEnabled(false);
@@ -2168,7 +2449,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             searchRemainingTimeLabel.setText(getString("remainingTime.calculating"));
 
             searchRunner = new LowYDripstoneCaveSearchRunner();
-            if (!searchRunner.startRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight, threadCount, fastMode,
+            if (!searchRunner.startRiverSearch(seed, minX, maxX, minZ, maxZ, minArea, riverWeight,
+                yRange.yMin(), yRange.yMax(), threadCount, fastMode,
                 selectedMcVersion(searchMcVersionComboBox),
                 fastMode ? LowYDripstoneCaveSearchRunner.SEARCH_MODE_FAST : LowYDripstoneCaveSearchRunner.SEARCH_MODE_PRECISE,
                 searchAllowGpuCheckBox != null && searchAllowGpuCheckBox.isSelected(),
@@ -2493,9 +2775,40 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         });
         inputPanel.add(listRiverWeightField, gbc);
 
-        // MinX 输入
+        // 精采样 Y 范围下限（B1）
+        gbc.gridx = 0;
+        gbc.gridy = 6;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        listSearchYMinLabel = new JLabel(getString("label.yMin"));
+        listSearchYMinLabel.setFont(getLoadedFont());
+        inputPanel.add(listSearchYMinLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        listYMinField = new JTextField(String.valueOf(DEFAULT_Y_MIN_UI), 20);
+        listYMinField.setToolTipText(getString("hint.yRange"));
+        inputPanel.add(listYMinField, gbc);
+
+        // 精采样 Y 范围上限（B1）
         gbc.gridx = 0;
         gbc.gridy = 5;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        listSearchYMaxLabel = new JLabel(getString("label.yMax"));
+        listSearchYMaxLabel.setFont(getLoadedFont());
+        inputPanel.add(listSearchYMaxLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        listYMaxField = new JTextField(String.valueOf(DEFAULT_Y_MAX_UI), 20);
+        listYMaxField.setToolTipText(getString("hint.yRange"));
+        inputPanel.add(listYMaxField, gbc);
+        attachYRangeValidation(listYMinField, listYMaxField);
+
+        // MinX 输入
+        gbc.gridx = 0;
+        gbc.gridy = 7;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         listSearchMinXLabel = new JLabel(getString("label.minX"));
@@ -2514,7 +2827,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // MaxX 输入
         gbc.gridx = 0;
-        gbc.gridy = 6;
+        gbc.gridy = 8;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         listSearchMaxXLabel = new JLabel(getString("label.maxX"));
@@ -2533,7 +2846,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // MinZ 输入
         gbc.gridx = 0;
-        gbc.gridy = 7;
+        gbc.gridy = 9;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         listSearchMinZLabel = new JLabel(getString("label.minZ"));
@@ -2552,7 +2865,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // MaxZ 输入
         gbc.gridx = 0;
-        gbc.gridy = 8;
+        gbc.gridy = 10;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         listSearchMaxZLabel = new JLabel(getString("label.maxZ"));
@@ -2571,7 +2884,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // 正方形区域边长（勾选后按中心 0,0 填入 min/max）
         gbc.gridx = 0;
-        gbc.gridy = 9;
+        gbc.gridy = 11;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         listSquareSideCheckBox = new JCheckBox(getString("label.squareSide"));
@@ -2608,7 +2921,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // Minecraft 版本
         gbc.gridx = 0;
-        gbc.gridy = 10;
+        gbc.gridy = 12;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         listMcVersionLabel = new JLabel(getString("label.mcVersion"));
@@ -2624,7 +2937,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // 快速模式（列表页最后一项）
         gbc.gridx = 0;
-        gbc.gridy = 11;
+        gbc.gridy = 13;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
@@ -2636,7 +2949,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
         // 允许调用 GPU（列表页）
         gbc.gridx = 0;
-        gbc.gridy = 12;
+        gbc.gridy = 14;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
@@ -2719,7 +3032,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         listSearchRightPanel.setBorder(BorderFactory.createTitledBorder(getString("result.border")));
         listSearchResultArea = new JTextArea();
         listSearchResultArea.setEditable(false);
-        listSearchResultArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        listSearchResultArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 10));
         JScrollPane scrollPane = new JScrollPane(listSearchResultArea);
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
         JPanel exportPanel = new JPanel(new FlowLayout());
@@ -2815,6 +3128,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchMinRiverAreaField.setEnabled(true);
         searchMinRiverRatioField.setEnabled(true);
         searchRiverWeightField.setEnabled(true);
+        setYRangeFieldsEnabled(true, false);
         if (searchFastModeCheckBox != null) searchFastModeCheckBox.setEnabled(true);
         if (searchAllowGpuCheckBox != null) searchAllowGpuCheckBox.setEnabled(true);
         if (searchMcVersionComboBox != null) searchMcVersionComboBox.setEnabled(true);
@@ -2855,6 +3169,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             File file = fileChooser.getSelectedFile();
             try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
                 // 导出所有结果，包括带有"x"标记的无法生成的结果
+                writer.print("# model=" + modelTag(false) + "\n");
                 writer.print(resultText);
                 JOptionPane.showMessageDialog(this, getString("success.export"), getString("prompt.success"), JOptionPane.INFORMATION_MESSAGE);
             } catch (IOException e) {
@@ -3055,6 +3370,18 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (searchRiverWeightLabel != null) {
             searchRiverWeightLabel.setText(getString("label.riverWeight"));
         }
+        if (searchYMinLabel != null) {
+            searchYMinLabel.setText(getString("label.yMin"));
+        }
+        if (searchYMaxLabel != null) {
+            searchYMaxLabel.setText(getString("label.yMax"));
+        }
+        if (searchYMinField != null) {
+            searchYMinField.setToolTipText(getString("hint.yRange"));
+        }
+        if (searchYMaxField != null) {
+            searchYMaxField.setToolTipText(getString("hint.yRange"));
+        }
         if (searchFastModeCheckBox != null) {
             searchFastModeCheckBox.setText(getString("label.fastMode"));
         }
@@ -3164,6 +3491,18 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         }
         if (listSearchRiverWeightLabel != null) {
             listSearchRiverWeightLabel.setText(getString("label.riverWeight"));
+        }
+        if (listSearchYMinLabel != null) {
+            listSearchYMinLabel.setText(getString("label.yMin"));
+        }
+        if (listSearchYMaxLabel != null) {
+            listSearchYMaxLabel.setText(getString("label.yMax"));
+        }
+        if (listYMinField != null) {
+            listYMinField.setToolTipText(getString("hint.yRange"));
+        }
+        if (listYMaxField != null) {
+            listYMaxField.setToolTipText(getString("hint.yRange"));
         }
         if (listFastModeCheckBox != null) {
             listFastModeCheckBox.setText(getString("label.fastMode"));
@@ -3343,8 +3682,16 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             int maxX = Integer.parseInt(listMaxXField.getText().trim());
             int minZ = Integer.parseInt(listMinZField.getText().trim());
             int maxZ = Integer.parseInt(listMaxZField.getText().trim());
+            YRange yRange = parseYRangeValues(listYMinField, listYMaxField);
+            boolean yChanged = yRange != null
+                    && (yRange.yMin() != lastListSearchYMin || yRange.yMax() != lastListSearchYMax);
 
-            if (minX != lastListSearchMinX || maxX != lastListSearchMaxX || minZ != lastListSearchMinZ || maxZ != lastListSearchMaxZ || minArea != lastListSearchMinArea) {
+            if (minX != lastListSearchMinX || maxX != lastListSearchMaxX || minZ != lastListSearchMinZ
+                    || maxZ != lastListSearchMaxZ || minArea != lastListSearchMinArea || yChanged) {
+                if (yRange != null) {
+                    lastListSearchYMin = yRange.yMin();
+                    lastListSearchYMax = yRange.yMax();
+                }
                 if (listSearchRunner != null) listSearchRunner.stop();
                 isListSearchRunning = false;
                 isListSearchPaused = false;
@@ -3358,6 +3705,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 listMinRiverAreaField.setEnabled(true);
                 listMinRiverRatioField.setEnabled(true);
                 listRiverWeightField.setEnabled(true);
+                setYRangeFieldsEnabled(true, true);
                 if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
                 if (listAllowGpuCheckBox != null) listAllowGpuCheckBox.setEnabled(true);
                 if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(true);
@@ -3499,6 +3847,12 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                 return;
             }
 
+            // 精采样层范围（B1）：所有种子共用同一范围
+            YRange yRange = readAndValidateYRange(listYMinField, listYMaxField);
+            if (yRange == null) {
+                return;
+            }
+
             // 验证XZ坐标
             String minXText = listMinXField.getText().trim();
             String maxXText = listMaxXField.getText().trim();
@@ -3602,6 +3956,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             lastListSearchMaxZ = maxZ;
             lastListSearchMinArea = minArea;
             lastListSearchThreadCount = threadCount;
+            lastListSearchYMin = yRange.yMin();
+            lastListSearchYMax = yRange.yMax();
 
             isListSearchRunning = true;
             isListSearchPaused = false;
@@ -3615,6 +3971,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             listMinRiverAreaField.setEnabled(false);
             listMinRiverRatioField.setEnabled(false);
             listRiverWeightField.setEnabled(false);
+            setYRangeFieldsEnabled(false, true);
             if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(false);
             if (listAllowGpuCheckBox != null) listAllowGpuCheckBox.setEnabled(false);
             if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(false);
@@ -3632,6 +3989,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
 
             final int finalMinArea = minArea;
             final float finalRiverWeight = riverWeight;
+            final int finalYMin = yRange.yMin();
+            final int finalYMax = yRange.yMax();
             final int finalThreadCount = threadCount;
             final boolean finalFastMode = fastMode;
             final String finalMcVersion = selectedMcVersion(listMcVersionComboBox);
@@ -3749,7 +4108,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                         });
                     };
 
-                    listSearchRunner.runRiverSearchBlocking(seed, minX, maxX, minZ, maxZ, finalMinArea, finalRiverWeight, finalThreadCount, finalFastMode, finalMcVersion,
+                    listSearchRunner.runRiverSearchBlocking(seed, minX, maxX, minZ, maxZ, finalMinArea,
+                            finalRiverWeight, finalYMin, finalYMax, finalThreadCount, finalFastMode, finalMcVersion,
                             finalFastMode ? LowYDripstoneCaveSearchRunner.SEARCH_MODE_FAST : LowYDripstoneCaveSearchRunner.SEARCH_MODE_PRECISE,
                             listAllowGpuCheckBox != null && listAllowGpuCheckBox.isSelected(),
                             seedProgressCallback, seedResultCallback);
@@ -3832,6 +4192,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
                     listMinRiverAreaField.setEnabled(true);
                     listMinRiverRatioField.setEnabled(true);
                     listRiverWeightField.setEnabled(true);
+                    setYRangeFieldsEnabled(true, true);
                     if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
                     if (listAllowGpuCheckBox != null) listAllowGpuCheckBox.setEnabled(true);
                     if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(true);
@@ -3880,6 +4241,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         listMinRiverAreaField.setEnabled(true);
         listMinRiverRatioField.setEnabled(true);
         listRiverWeightField.setEnabled(true);
+        setYRangeFieldsEnabled(true, true);
         if (listFastModeCheckBox != null) listFastModeCheckBox.setEnabled(true);
         if (listAllowGpuCheckBox != null) listAllowGpuCheckBox.setEnabled(true);
         if (listMcVersionComboBox != null) listMcVersionComboBox.setEnabled(true);
@@ -4007,6 +4369,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         if (result == JFileChooser.APPROVE_OPTION) {
             File file = fileChooser.getSelectedFile();
             try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
+                writer.print("# model=" + modelTag(true) + "\n");
                 writer.print(listSearchResultArea.getText());
                 JOptionPane.showMessageDialog(this, getString("success.export"), getString("prompt.success"), JOptionPane.INFORMATION_MESSAGE);
             } catch (IOException e) {

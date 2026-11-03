@@ -26,12 +26,16 @@ The first two tabs include a **Fast Mode** checkbox (on by default) and a **Game
 
 ### Single Seed Search / 单种子搜索
 
-- Enter seed, thread count, minimum weighted total area, minimum weighted total ratio, Fast Mode, and search range (`MinX/MaxX/MinZ/MaxZ`).
+- Enter seed, thread count, minimum weighted total area, minimum weighted total ratio, river weight, sample Y range (`Y Max` / `Y Min`), Fast Mode, and search range (`MinX/MaxX/MinZ/MaxZ`).
+- The sample Y range defaults to **-63…-51** (13 layers). `Y Max - Y Min + 1` must not exceed **48**; inverted, out-of-bounds (`-63…319`) or too wide ranges are rejected with an error, and the fields turn red while the input is invalid.
+- Two non-blocking warnings appear after clicking **Start Search**: span over 24 layers, and a lower bound above -58. Both continue the search when acknowledged.
 - Click **Start Search** to begin. You can **Pause**, **Resume**, or **Stop**.
 - Results show coordinates, weighted total (`s=`), ratio, and reference `cave`/`river` values. You can **Sort** and **Export**.
 - Use **Reset Search Area to Default** to restore default range.
 
-- 输入种子、线程数、最低加权总面积、最低加权总面积占比、快速模式和搜索范围（`MinX/MaxX/MinZ/MaxZ`）。
+- 输入种子、线程数、最低加权总面积、最低加权总面积占比、河流折算系数、采样 Y 范围（`Y上限`/`Y下限`）、快速模式和搜索范围（`MinX/MaxX/MinZ/MaxZ`）。
+- 采样 Y 范围默认 **-63…-51**（13 层）。`Y上限 - Y下限 + 1` 不得超过 **48** 层；倒置、越界（`-63…319`）或跨度过大都会直接报错，输入非法时输入框会实时标红。
+- 点击**开始搜索**后会弹两条不阻断流程的提示：跨度超过 24 层、最低层高于 -58。
 - 点击**开始搜索**开始任务，可在过程中**暂停**、**继续**或**停止**。
 - 结果显示坐标、加权总面积（`s=`）、占比及参考 `cave`/`river` 值，可进行**排序**和**导出**。
 - 使用**重置搜索区域为默认值**恢复默认范围。
@@ -39,12 +43,12 @@ The first two tabs include a **Fast Mode** checkbox (on by default) and a **Game
 ### Search from Seed List / 从种子列表搜索
 
 - Click **Select File** and choose a text file with one seed per line.
-- Configure parameters (including Fast Mode), then click **Start Search** for batch search.
+- Configure parameters (including the sample Y range and Fast Mode), then click **Start Search** for batch search. Every seed uses the same Y range.
 - After completion, you can export full results or export only seed list.
 - Supports sorting by area or distance.
 
 - 点击**选择文件**，选择每行一个种子的文本文件。
-- 设置参数（含快速模式）后点击**开始搜索**进行批量搜索。
+- 设置参数（含采样 Y 范围与快速模式）后点击**开始搜索**进行批量搜索；同一批种子共用同一个 Y 范围。
 - 完成后可导出完整结果或仅导出种子列表。
 - 支持按面积或按距离排序。
 
@@ -55,6 +59,7 @@ Use this tab when you trust the seed (its weirdness y-offset is low enough(<0.75
 Coordinates default to the world border (±30000000) and can be changed. Like the other tabs, a **square side length** checkbox fills the four bounds from a square centered at (0, 0) and locks those fields. **Reset Coordinates to World Border** checks the box again and restores that side length.
 
 - Weighted area ratio is **80%–95%**, default **90%**. There is no river-weight field. River area is not counted, and result lines omit `cave` / `river`: `/tp x 64 z s=total/49640 = pct%`.
+- This tab has the same **sample Y range** fields (`Y Max` / `Y Min`, default -63…-51, span cap 48). The large-pit precise pass uses the same per-layer volume integral, so the score is the average cave volume over that window (still 0..49640, no river contribution).
 - This tab does not use the Fast Mode checkbox. Progress is four phases: octave cache, finding large pits, continentalness check, precise check of candidate points.
 - Click **Start Search** yourself. Switching to this tab never starts a search.
 
@@ -63,6 +68,7 @@ Coordinates default to the world border (±30000000) and can be changed. Like th
 坐标默认是世界边界（±30000000），可以改。和另外两页一样有**正方形区域边长**：勾选后以 (0, 0) 为中心填入四个坐标并锁住它们。**重置坐标为世界边界**会重新勾选，并把边长恢复成世界边界。
 
 - 加权总面积占比 **80%～95%**，默认 **90%**。没有河流折算系数（因为这种搜索结果附近肯定没有河流），不计入河流面积，结果行也不带 `cave` / `river`：`/tp x 64 z s=total/49640 = pct%`。
+- 这一页同样有**采样 Y 范围**填框（`Y上限` / `Y下限`，默认 -63…-51，跨度上限 48）。大坑精算走同一条体积积分路径，计分为该窗口内溶洞体积的逐层平均（仍是 0..49640，不计河流）。
 - 这一页不用快速模式勾选框。进度分四段：噪声缓存、寻找大坑、大陆性检查、精确检查潜在点位。
 - 需要自己点**开始搜索**。切到这一页不会自动开搜。
 
@@ -79,17 +85,17 @@ The prompt appears only when you click **Start Search** on **Single Seed Search*
 
 The seed-list tab never shows these dialogs. Closing a dialog starts neither search.
 
-- **去碰碰运气! / have a try!** switches to **Fast Single Seed Search** and copies the seed, thread count, game version, and coordinates. If square-side mode is on, the side length is copied and the box stays checked. The area ratio stays at this tab's **90%** default. River weight stays on the first tab. The search waits until you click **Start Search**.
+- **去碰碰运气! / have a try!** switches to **Fast Single Seed Search** and copies the seed, thread count, game version, coordinates, and the sample Y range. If square-side mode is on, the side length is copied and the box stays checked. The area ratio stays at this tab's **90%** default. River weight stays on the first tab. The search waits until you click **Start Search**.
 - **算了吧，继续原搜索 / don't cheat me! remain on this page** continues the search you just started.
-- On the fast tab, **I'll try anyway / 我偏要试试** starts the fast search. **OK / 好的** switches back to **Single Seed Search** and copies the seed, thread count, game version, coordinates, and area ratio. River weight and Fast Mode stay at the values already on the first tab (a blank river weight is filled with the default 0.75). That jump does not start a search.
+- On the fast tab, **I'll try anyway / 我偏要试试** starts the fast search. **OK / 好的** switches back to **Single Seed Search** and copies the seed, thread count, game version, coordinates, area ratio, and the sample Y range. River weight and Fast Mode stay at the values already on the first tab (a blank river weight is filled with the default 0.70). That jump does not start a search.
 
 只有在**单种子搜索**里点**开始搜索**，并且搜索范围不小于 **6000001 × 6000001** 格时，才会询问要不要去快速搜索。程序计算该种子的奇异值 y-offset。阈值在 `WeirdnessYOffset`：`MIN_SEARCH_AREA`、`LUCKY_BELOW`（0.75）、`LUCKY_LOW_PROB_BELOW`（0.85）。offset 不低于 0.75 时，第一页不再弹框。
 
 种子列表页不会弹出这些框。关掉弹框则两边都不开始搜索。
 
-- **去碰碰运气! / have a try!** 切到**快速单种子搜索**，并带上种子、线程数、游戏版本和坐标。第一页开着正方形模式时，边长一并带上并保持勾选。面积占比保持本页默认 **90%**。河流折算系数留在第一页。需要再点一次**开始搜索**才会执行。
+- **去碰碰运气! / have a try!** 切到**快速单种子搜索**，并带上种子、线程数、游戏版本、坐标和采样 Y 范围。第一页开着正方形模式时，边长一并带上并保持勾选。面积占比保持本页默认 **90%**。河流折算系数留在第一页。需要再点一次**开始搜索**才会执行。
 - **算了吧，继续原搜索 / don't cheat me! remain on this page** 继续刚才那次原搜索。
-- 快速页上，**我偏要试试**会照常开始快速搜索。**好的**跳回**单种子搜索**，带上种子、线程数、游戏版本、坐标和面积占比。河流折算系数和快速模式保留第一页上已有的值（折算系数为空时填默认 0.75）。这次跳转不会自动开始搜索。
+- 快速页上，**我偏要试试**会照常开始快速搜索。**好的**跳回**单种子搜索**，带上种子、线程数、游戏版本、坐标、面积占比和采样 Y 范围。河流折算系数和快速模式保留第一页上已有的值（折算系数为空时填默认 0.70）。这次跳转不会自动开始搜索。
 
 ## Fast Mode / Precise Mode / 快速模式与精确模式
 
@@ -112,31 +118,47 @@ Phase 1 coarse scan uses continentalness (Cont) + weirdness (ridge) climate samp
 
 ## Search Semantics / 搜索语义
 
-- Native code samples biomes at fixed heights **Y = -60, -56, -52** (cave + river averaged).
-- **Weighted total** (`total` / `s=` in output): `cave + river × river weight factor` (UI default 0.75)
+- The native code samples **every layer in `[Y Min, Y Max]`** and integrates the counts as a volume: the reported value is the per-layer average (cave + river averaged). The default window is **-63…-51** (13 layers); the span is capped at **48** layers.
+- **Weighted total** (`total` / `s=` in output): `cave + river × river weight factor` (UI default **0.70**; the base CLI default stays 0.75)
 - Sorting, filtering threshold, and percentage use **total**; `cave` and `river` are reference display only.
 - Result line format: `/tp x 64 z s=total/49640 = pct% cave=N river=M`
-- Weighted total ratio range: Fast Mode **60%～95%**, Precise Mode **40%～95%**.
+- Weighted total ratio range: Fast Mode **60%～95%**, Precise Mode **40%～95%**. Default is **70%** (`DEFAULT_RIVER_AREA_UI`).
+- Result-set model tag: `drowned-weighted-volume-b/{L}` (e.g. `/13`). Exports and the CLI report carry it; results from different layer counts or model versions are **not comparable**.
+- The third tab (Fast Single Seed Search / large-pit) has the same sample Y range fields and uses the same volume-integral per-layer average over the configured window; it does not count river area.
 
-- Native 在固定高度 **Y = -60、-56、-52** 采样群系（洞穴+河流取平均）。
-- **加权总面积**（输出中的 `total` / `s=`）：`cave + river × 河流折算系数`（界面默认 0.75）
+- Native 逐层采样 **`[Y下限, Y上限]` 的每一层**，按**体积积分**取逐层平均（洞穴+河流平均）。默认窗口 **-63…-51**（13 层），跨度硬上限 **48** 层。
+- **加权总面积**（输出中的 `total` / `s=`）：`cave + river × 河流折算系数`（界面默认 **0.70**；base CLI 默认仍为 0.75）
 - 排序、阈值过滤、占比均基于 **total**；`cave` 与 `river` 仅作参考显示。
 - 结果行格式：`/tp x 64 z s=total/49640 = pct% cave=N river=M`
-- 加权总面积占比范围：快速模式 **60%～95%**，精确模式 **40%～95%**。
+- 加权总面积占比范围：快速模式 **60%～95%**，精确模式 **40%～95%**。默认 **70%**（`DEFAULT_RIVER_AREA_UI`）。
+- 结果模型标识：`drowned-weighted-volume-b/{L}`（如 `/13`）。导出与 CLI 报告都会带上；不同层数/模型版本的结果**不可比**。
+- 第三个标签页（快速单种子搜索 / 大坑）也有同样的采样 Y 范围填框，并按配置窗口走同一条体积积分路径（逐层平均），不计河流面积。
+
+### Threshold calibration / 门槛标定
+
+The volume-integral model scores about **1.5%–2.5%** below the old 3-layer majority vote at the same river weight. Measured on 5 seeds × {131072², 262144²}, fast mode, riverWeight 0.7: the old 70% default produced roughly the same number of hits as the new model at **66%**. The product default remains **70%** (`DEFAULT_RIVER_AREA_UI`), so the volume model is slightly stricter; lower the ratio if you want the old hit count. The base CLI default `--min-area` is 70% as well.
+
+体积积分模型在相同河流折算系数下比旧的三层多数票低约 **1.5%–2.5%**。用 5 个种子 × {131072², 262144²}、快速模式、河流折算系数 0.7 实测：旧默认 70% 的命中数量约等于新模型 **66%**。产品默认仍为 **70%**（`DEFAULT_RIVER_AREA_UI`），因此新模型略严格；想要接近旧的命中数量可以适当降低占比。base CLI 的 `--min-area` 默认也是 70%。
 
 ## Features / 功能特点
 
+- Adjustable precise sample Y window (`Y Min` / `Y Max`, default -63…-51, hard span cap 48) with live validation and two non-blocking warnings
+- Volume-integrated scoring over every sampled layer (same model as the river-native finder, per-layer average units)
 - Multi-threaded low-Y cave and river search
 - Pause, resume, and stop controls
 - Real-time progress and time estimation
 - Batch search from seed list files
 - Result sorting and export support
+- Frozen-original reference regression tests (2808 block biomes) and analytic volume-integral tests
 
+- 可调精采样 Y 范围（`Y下限`/`Y上限`，默认 -63…-51，跨度硬上限 48），输入实时校验 + 两条非阻断提示
+- 对每个采样层做体积积分计分（与 river-native 同一模型，逐层平均口径）
 - 多线程低 Y 洞穴+河流搜索
 - 支持暂停、继续和停止
 - 实时进度与时间估算
 - 支持从种子列表批量搜索
 - 支持结果排序与导出
+- 原版冻结参照回归（2808 格）与体积积分解析用例
 
 ## Build / 构建
 
@@ -164,7 +186,7 @@ gradlew buildDistribution
 `buildDistribution` runs the submodule checks and the JNI contract check, then
 builds:
 
-- `build\libs\LowYDripstoneCaveFinder-1.4.1.jar` — GUI fat JAR with the base DLL embedded
+- `build\libs\LowYDripstoneCaveFinder-1.4.2.jar` — GUI fat JAR with the base DLL embedded
 - `build\cli\lowydripstonecavefinder-cli.exe` — standalone CLI
 - `LowYDripstoneCaveFinderBase\build\native\libDripstoneCaveFinderLibJ.dll` — JNI library
 
@@ -175,14 +197,22 @@ DLL 由 `prepareNativeResources` 自动打入 JAR。
 Run the GUI:
 
 ```bat
-java -jar build\libs\LowYDripstoneCaveFinder-1.4.1.jar
+java -jar build\libs\LowYDripstoneCaveFinder-1.4.2.jar
 ```
 
 Or use `run.bat`. The standalone CLI can be run directly:
 
 ```bat
 build\cli\lowydripstonecavefinder-cli.exe --seed 12345 --out result.txt
+build\cli\lowydripstonecavefinder-cli.exe --seed 12345 --square 131072 --y-min -60 --y-max -52 --out y9.txt
 build\cli\lowydripstonecavefinder-cli.exe --weirdness-y-offset 12345
+```
+
+Native regression tests (volume integral, layer-window validation, frozen
+2808-cell biome reference ported from the C project):
+
+```bat
+powershell -ExecutionPolicy Bypass -File LowYDripstoneCaveFinderBase\tests\run_tests_msys2.ps1
 ```
 
 The base submodule can also be built independently; see
@@ -219,11 +249,22 @@ It builds on [cubiomes](https://github.com/Cubitect/cubiomes) by Cubitect (MIT).
   thresholds and the fast-search page jump stay in the GUI.
 - To update the native code, change `LowYDripstoneCaveFinderBase` and rebuild
   with `gradlew buildDistribution`.
+- The GUI passes `riverWeight = 0.7` on both search tabs; the base CLI default is
+  still `0.75` (B3).
+- Batch search reuses the native `Generator` across seeds (B6), so the per-seed
+  `setupGenerator` cost (~0.29 s) is paid once per search session instead of once
+  per seed.
+- Exports start with a `# model=drowned-weighted-volume-b/{L}` comment; results
+  from different layer windows are not comparable.
 - 建议根据 CPU 性能设置线程数以获得更稳定的体验。
 - 原生库（`dll`/`so`）已打包进 jar，运行时会自动解压到临时目录加载。
 - 奇异值 y-offset 分数由 base 子模块通过
   `LowYDripstoneCaveFinderBridge.weirdnessYOffset(long)` 计算；`0.75` / `0.85`
   阈值判断与快速搜索页跳转仍由主模块执行。
+- 界面两个搜索页传 `riverWeight = 0.7`；base CLI 默认仍为 `0.75`（B3）。
+- 批量搜索复用原生 `Generator`（B6），`setupGenerator` 的约 0.29 s 每个搜索会话
+  只付一次，而不是每个种子一次。
+- 导出文件开头带 `# model=drowned-weighted-volume-b/{L}` 注释；不同层窗口的结果不可比。
 - 更新 native 代码时修改 `LowYDripstoneCaveFinderBase`，然后执行
   `gradlew buildDistribution`。
 
