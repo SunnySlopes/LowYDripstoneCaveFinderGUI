@@ -44,7 +44,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private static final int MIN_RIVER_AREA_UI_FAST = (int) (RIVER_AREA_FULL * 0.60);
     private static final int MIN_RIVER_AREA_UI_PRECISE = (int) (RIVER_AREA_FULL * 0.40);
     /**
-     * Default minimum weighted area: 70% of the full ring (34748).  The volume
+     * Default minimum weighted area: 70% of the full shell (34761).  The volume
      * integral scores ~2% below the old 3-layer majority vote, so 70% is the
      * product default requested after the B1 calibration.
      */
@@ -765,7 +765,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchRightPanel.setBorder(BorderFactory.createTitledBorder(getString("result.border")));
         searchResultArea = new JTextArea();
         searchResultArea.setEditable(false);
-        searchResultArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 10));
+        searchResultArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         JScrollPane scrollPane = new JScrollPane(searchResultArea);
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
         JPanel exportSortPanel = new JPanel(new FlowLayout());
@@ -1214,7 +1214,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     // 排序搜索结果（按加权总面积 total 从大到小；行格式含 s= total cave= river=）
 
     /**
-     * 从结果行解析加权总面积 total，格式 /tp x 64 z s=total/49640 = pct% cave=N river=M
+     * 从结果行解析加权总面积 total，格式 /tp x -40 z s=total/49659 = pct% cave=N river=M
      */
     private int parseAreaFromResultLine(String line) {
         int sIdx = line.indexOf("s=");
@@ -3032,7 +3032,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         listSearchRightPanel.setBorder(BorderFactory.createTitledBorder(getString("result.border")));
         listSearchResultArea = new JTextArea();
         listSearchResultArea.setEditable(false);
-        listSearchResultArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 10));
+        listSearchResultArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         JScrollPane scrollPane = new JScrollPane(listSearchResultArea);
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
         JPanel exportPanel = new JPanel(new FlowLayout());

@@ -58,8 +58,8 @@ Use this tab when you trust the seed (its weirdness y-offset is low enough(<0.75
 
 Coordinates default to the world border (±30000000) and can be changed. Like the other tabs, a **square side length** checkbox fills the four bounds from a square centered at (0, 0) and locks those fields. **Reset Coordinates to World Border** checks the box again and restores that side length.
 
-- Weighted area ratio is **80%–95%**, default **90%**. There is no river-weight field. River area is not counted, and result lines omit `cave` / `river`: `/tp x 64 z s=total/49640 = pct%`.
-- This tab has the same **sample Y range** fields (`Y Max` / `Y Min`, default -63…-51, span cap 48). The large-pit precise pass uses the same per-layer volume integral, so the score is the average cave volume over that window (still 0..49640, no river contribution).
+- Weighted area ratio is **80%–95%**, default **90%**. There is no river-weight field. River area is not counted, and result lines omit `cave` / `river`: `/tp x -40 z s=total/49659 = pct%`.
+- This tab has the same **sample Y range** fields (`Y Max` / `Y Min`, default -63…-51, span cap 48). The large-pit precise pass uses the same 24–128 shell model (AFK Y = -40), so the score is the average cave content inside that shell over the configured window (still 0..49659, no river contribution).
 - This tab does not use the Fast Mode checkbox. Progress is four phases: octave cache, finding large pits, continentalness check, precise check of candidate points.
 - Click **Start Search** yourself. Switching to this tab never starts a search.
 
@@ -67,8 +67,8 @@ Coordinates default to the world border (±30000000) and can be changed. Like th
 
 坐标默认是世界边界（±30000000），可以改。和另外两页一样有**正方形区域边长**：勾选后以 (0, 0) 为中心填入四个坐标并锁住它们。**重置坐标为世界边界**会重新勾选，并把边长恢复成世界边界。
 
-- 加权总面积占比 **80%～95%**，默认 **90%**。没有河流折算系数（因为这种搜索结果附近肯定没有河流），不计入河流面积，结果行也不带 `cave` / `river`：`/tp x 64 z s=total/49640 = pct%`。
-- 这一页同样有**采样 Y 范围**填框（`Y上限` / `Y下限`，默认 -63…-51，跨度上限 48）。大坑精算走同一条体积积分路径，计分为该窗口内溶洞体积的逐层平均（仍是 0..49640，不计河流）。
+- 加权总面积占比 **80%～95%**，默认 **90%**。没有河流折算系数（因为这种搜索结果附近肯定没有河流），不计入河流面积，结果行也不带 `cave` / `river`：`/tp x -40 z s=total/49659 = pct%`。
+- 这一页同样有**采样 Y 范围**填框（`Y上限` / `Y下限`，默认 -63…-51，跨度上限 48）。大坑精算走同一条 24–128 球壳规则（挂机 Y = -40），计分为该球壳在配置窗口内的逐层平均（仍是 0..49659，不计河流）。
 - 这一页不用快速模式勾选框。进度分四段：噪声缓存、寻找大坑、大陆性检查、精确检查潜在点位。
 - 需要自己点**开始搜索**。切到这一页不会自动开搜。
 
@@ -118,47 +118,49 @@ Phase 1 coarse scan uses continentalness (Cont) + weirdness (ridge) climate samp
 
 ## Search Semantics / 搜索语义
 
-- The native code samples **every layer in `[Y Min, Y Max]`** and integrates the counts as a volume: the reported value is the per-layer average (cave + river averaged). The default window is **-63…-51** (13 layers); the span is capped at **48** layers.
+- The native code samples **every layer in `[Y Min, Y Max]`** and scores the **24–128 spherical shell around (result x, -40, result z)**: each layer counts every cell inside that layer's shell cross-section, and the score is the per-layer average (cave + river averaged). The default window is **-63…-51** (13 layers); the span is capped at **48** layers.
+- AFK Y is fixed at **-40**. The shell is centered on `(result x, -40, result z)`; every cell inside the shell counts. The CLI can override it with `--afk-y` / `--sweep-afk-y`. Because the shell cross-section is close to the full horizontal ring, the theoretical maximum ratio is near 100%.
 - **Weighted total** (`total` / `s=` in output): `cave + river × river weight factor` (UI default **0.70**; the base CLI default stays 0.75)
 - Sorting, filtering threshold, and percentage use **total**; `cave` and `river` are reference display only.
-- Result line format: `/tp x 64 z s=total/49640 = pct% cave=N river=M`
+- Result line format: `/tp x -40 z s=total/49659 = pct% cave=N river=M`
 - Weighted total ratio range: Fast Mode **60%～95%**, Precise Mode **40%～95%**. Default is **70%** (`DEFAULT_RIVER_AREA_UI`).
-- Result-set model tag: `drowned-weighted-volume-b/{L}` (e.g. `/13`). Exports and the CLI report carry it; results from different layer counts or model versions are **not comparable**.
-- The third tab (Fast Single Seed Search / large-pit) has the same sample Y range fields and uses the same volume-integral per-layer average over the configured window; it does not count river area.
+- Result-set model tag: `drowned-weighted-shell-b/{L}/afk-40` (e.g. `/13/afk-40`). Exports and the CLI report carry it; results from different layer counts, AFK Y or model versions are **not comparable**.
+- The third tab (Fast Single Seed Search / large-pit) has the same sample Y range fields and uses the same 24–128 shell average over the configured window; it does not count river area.
 
-- Native 逐层采样 **`[Y下限, Y上限]` 的每一层**，按**体积积分**取逐层平均（洞穴+河流平均）。默认窗口 **-63…-51**（13 层），跨度硬上限 **48** 层。
+- Native 逐层采样 **`[Y下限, Y上限]` 的每一层**，统计以**结果点 (x, -40, z)** 为球心的 **24–128 球壳**：每层只计该层球壳截面内的格，最终取逐层平均（洞穴+河流平均）。默认窗口 **-63…-51**（13 层），跨度硬上限 **48** 层。
+- 挂机 Y 固定为 **-40**。球壳以 `(结果x, -40, 结果z)` 为球心，球壳内所有格都计入；CLI 可用 `--afk-y` / `--sweep-afk-y` 覆盖。由于球壳截面接近完整水平环，理论最高占比接近 100%。
 - **加权总面积**（输出中的 `total` / `s=`）：`cave + river × 河流折算系数`（界面默认 **0.70**；base CLI 默认仍为 0.75）
 - 排序、阈值过滤、占比均基于 **total**；`cave` 与 `river` 仅作参考显示。
-- 结果行格式：`/tp x 64 z s=total/49640 = pct% cave=N river=M`
+- 结果行格式：`/tp x -40 z s=total/49659 = pct% cave=N river=M`
 - 加权总面积占比范围：快速模式 **60%～95%**，精确模式 **40%～95%**。默认 **70%**（`DEFAULT_RIVER_AREA_UI`）。
-- 结果模型标识：`drowned-weighted-volume-b/{L}`（如 `/13`）。导出与 CLI 报告都会带上；不同层数/模型版本的结果**不可比**。
-- 第三个标签页（快速单种子搜索 / 大坑）也有同样的采样 Y 范围填框，并按配置窗口走同一条体积积分路径（逐层平均），不计河流面积。
+- 结果模型标识：`drowned-weighted-shell-b/{L}/afk-40`（如 `/13/afk-40`）。导出与 CLI 报告都会带上；不同层数、挂机 Y 或模型版本的结果**不可比**。
+- 第三个标签页（快速单种子搜索 / 大坑）也有同样的采样 Y 范围填框，并按配置窗口走同一条 24–128 球壳规则（逐层平均），不计河流面积。
 
 ### Threshold calibration / 门槛标定
 
-The volume-integral model scores about **1.5%–2.5%** below the old 3-layer majority vote at the same river weight. Measured on 5 seeds × {131072², 262144²}, fast mode, riverWeight 0.7: the old 70% default produced roughly the same number of hits as the new model at **66%**. The product default remains **70%** (`DEFAULT_RIVER_AREA_UI`), so the volume model is slightly stricter; lower the ratio if you want the old hit count. The base CLI default `--min-area` is 70% as well.
+The shell model changes the score relative to the old horizontal cylinder: cells outside the 24–128 sphere are excluded per layer, so a point's value can move by a few percent up or down. The product default stays **70%** (`DEFAULT_RIVER_AREA_UI`); re-run a few seeds and lower the ratio if you want a looser threshold. The base CLI default `--min-area` is 70% as well.
 
-体积积分模型在相同河流折算系数下比旧的三层多数票低约 **1.5%–2.5%**。用 5 个种子 × {131072², 262144²}、快速模式、河流折算系数 0.7 实测：旧默认 70% 的命中数量约等于新模型 **66%**。产品默认仍为 **70%**（`DEFAULT_RIVER_AREA_UI`），因此新模型略严格；想要接近旧的命中数量可以适当降低占比。base CLI 的 `--min-area` 默认也是 70%。
+球壳模型相对旧的水平柱环会改变分数：每层都会排除 24–128 球体之外的格，同一点的分值可能上下浮动几个百分点。产品默认仍为 **70%**（`DEFAULT_RIVER_AREA_UI`）；如果希望门槛更宽松，可以多跑几个种子后适当降低占比。base CLI 的 `--min-area` 默认也是 70%。
 
 ## Features / 功能特点
 
 - Adjustable precise sample Y window (`Y Min` / `Y Max`, default -63…-51, hard span cap 48) with live validation and two non-blocking warnings
-- Volume-integrated scoring over every sampled layer (same model as the river-native finder, per-layer average units)
+- 24–128 spherical-shell scoring around the fixed AFK point Y=-40 over every sampled layer (per-layer average units)
 - Multi-threaded low-Y cave and river search
 - Pause, resume, and stop controls
 - Real-time progress and time estimation
 - Batch search from seed list files
 - Result sorting and export support
-- Frozen-original reference regression tests (2808 block biomes) and analytic volume-integral tests
+- Frozen-original reference regression tests (2808 block biomes) and analytic shell-geometry tests
 
 - 可调精采样 Y 范围（`Y下限`/`Y上限`，默认 -63…-51，跨度硬上限 48），输入实时校验 + 两条非阻断提示
-- 对每个采样层做体积积分计分（与 river-native 同一模型，逐层平均口径）
+- 以固定挂机点 Y=-40 为球心的 24–128 球壳计分，逐层统计后取平均（逐层平均口径）
 - 多线程低 Y 洞穴+河流搜索
 - 支持暂停、继续和停止
 - 实时进度与时间估算
 - 支持从种子列表批量搜索
 - 支持结果排序与导出
-- 原版冻结参照回归（2808 格）与体积积分解析用例
+- 原版冻结参照回归（2808 格）与球壳几何解析用例
 
 ## Build / 构建
 
@@ -186,7 +188,7 @@ gradlew buildDistribution
 `buildDistribution` runs the submodule checks and the JNI contract check, then
 builds:
 
-- `build\libs\LowYDripstoneCaveFinder-1.4.2.jar` — GUI fat JAR with the base DLL embedded
+- `build\libs\LowYDripstoneCaveFinder-1.4.3.jar` — GUI fat JAR with the base DLL embedded
 - `build\cli\lowydripstonecavefinder-cli.exe` — standalone CLI
 - `LowYDripstoneCaveFinderBase\build\native\libDripstoneCaveFinderLibJ.dll` — JNI library
 
@@ -197,7 +199,7 @@ DLL 由 `prepareNativeResources` 自动打入 JAR。
 Run the GUI:
 
 ```bat
-java -jar build\libs\LowYDripstoneCaveFinder-1.4.2.jar
+java -jar build\libs\LowYDripstoneCaveFinder-1.4.3.jar
 ```
 
 Or use `run.bat`. The standalone CLI can be run directly:
@@ -208,7 +210,7 @@ build\cli\lowydripstonecavefinder-cli.exe --seed 12345 --square 131072 --y-min -
 build\cli\lowydripstonecavefinder-cli.exe --weirdness-y-offset 12345
 ```
 
-Native regression tests (volume integral, layer-window validation, frozen
+Native regression tests (shell geometry, layer-window validation, frozen
 2808-cell biome reference ported from the C project):
 
 ```bat
@@ -254,8 +256,8 @@ It builds on [cubiomes](https://github.com/Cubitect/cubiomes) by Cubitect (MIT).
 - Batch search reuses the native `Generator` across seeds (B6), so the per-seed
   `setupGenerator` cost (~0.29 s) is paid once per search session instead of once
   per seed.
-- Exports start with a `# model=drowned-weighted-volume-b/{L}` comment; results
-  from different layer windows are not comparable.
+- Exports start with a `# model=drowned-weighted-shell-b/{L}/afk-40` comment;
+  results from different layer windows or AFK Y are not comparable.
 - 建议根据 CPU 性能设置线程数以获得更稳定的体验。
 - 原生库（`dll`/`so`）已打包进 jar，运行时会自动解压到临时目录加载。
 - 奇异值 y-offset 分数由 base 子模块通过
@@ -264,7 +266,7 @@ It builds on [cubiomes](https://github.com/Cubitect/cubiomes) by Cubitect (MIT).
 - 界面两个搜索页传 `riverWeight = 0.7`；base CLI 默认仍为 `0.75`（B3）。
 - 批量搜索复用原生 `Generator`（B6），`setupGenerator` 的约 0.29 s 每个搜索会话
   只付一次，而不是每个种子一次。
-- 导出文件开头带 `# model=drowned-weighted-volume-b/{L}` 注释；不同层窗口的结果不可比。
+- 导出文件开头带 `# model=drowned-weighted-shell-b/{L}/afk-40` 注释；不同层窗口或挂机 Y 的结果不可比。
 - 更新 native 代码时修改 `LowYDripstoneCaveFinderBase`，然后执行
   `gradlew buildDistribution`。
 

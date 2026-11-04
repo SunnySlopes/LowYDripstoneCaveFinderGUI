@@ -31,7 +31,7 @@ import java.util.List;
  * enforces that.
  *
  * <p>The search samples every layer in {@code [yMin, yMax]} and reports the
- * per-layer average volume, so the weighted total keeps the 0..49640 scale
+ * per-layer average volume, so the weighted total keeps the 0..49659 scale
  * regardless of the layer count.  River area is weighted by
  * {@code riverWeight} into total.
  */
@@ -162,6 +162,9 @@ public final class LowYDripstoneCaveFinderBridge {
      * @param yMax highest sampled layer (<= 319); {@code yMax - yMin + 1 <= 48}
      * @param coarseY coarse-stage recall height (carried for protocol compatibility;
      *     the climate prefilter of this engine is Y-independent)
+     * @param afkY AFK / player Y of the shell model; the scored region is the 3D
+     *     shell {@code 24 < distance <= 128} around {@code (x, afkY, z)}.
+     *     Every cave/river block inside the shell counts.
      * @param minArea minimum weighted total area
      * @param preserveRange phase-1 refinement coefficient (0.9 keeps the historical behaviour)
      * @param riverWeight river area weight in total = cave + river * riverWeight, range [0, 1]
@@ -176,7 +179,7 @@ public final class LowYDripstoneCaveFinderBridge {
      * @return [x1, z1, total1, cave1, river1, x2, ...] or {@code null}
      */
     public static native int[] riverSearch(long seed, int startX, int startZ,
-        int width, int height, int yMin, int yMax, int coarseY, int minArea, float preserveRange,
+        int width, int height, int yMin, int yMax, int coarseY, int afkY, int minArea, float preserveRange,
         float riverWeight, int numThreads, String mcVersion, int contScale, int weirdScale,
         int searchMode, boolean allowGpu);
 

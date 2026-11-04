@@ -52,7 +52,7 @@ public class LowYDripstoneCaveSearchRunner {
      * Block-cell centers in the 24..128 annulus (block-center raster).
      * This is also the cap for the weighted total, so the reported ratio is 0%..100%.
      */
-    public static final double RIVER_AREA_FULL = 49_640.0;
+    public static final double RIVER_AREA_FULL = 49_659.0;
 
     /** Max search area (blocks). */
     public static final long MAX_SEARCH_AREA_BLOCKS = 60_000_001L * 60_000_001L;
@@ -65,6 +65,13 @@ public class LowYDripstoneCaveSearchRunner {
     public static final int DEFAULT_Y_MAX = -51;
     /** Coarse-stage recall height; the climate prefilter is Y-independent today. */
     public static final int DEFAULT_COARSE_Y = -51;
+    /**
+     * AFK / player Y of the shell model.  The scored region is the 3D shell
+     * 24 < distance <= 128 around (result x, afkY, result z).
+     */
+    public static final int DEFAULT_AFK_Y = -40;
+    public static final int AFK_Y_LIMIT_MIN = -64;
+    public static final int AFK_Y_LIMIT_MAX = 320;
     /** Layer bounds accepted by the native engine. */
     public static final int Y_LIMIT_MIN = -63;
     public static final int Y_LIMIT_MAX = 319;
@@ -78,9 +85,15 @@ public class LowYDripstoneCaveSearchRunner {
         return Math.min(layers, MAX_Y_SPAN);
     }
 
-    /** Result-set model tag, e.g. {@code drowned-weighted-volume-b/13}. */
+    /** Result-set model tag, e.g. {@code drowned-weighted-shell-b/13/afk-40}. */
     public static String modelId(int yMin, int yMax) {
-        return "drowned-weighted-volume-b/" + layerCount(yMin, yMax);
+        return modelId(yMin, yMax, DEFAULT_AFK_Y);
+    }
+
+    /** Result-set model tag for an explicit AFK Y. */
+    public static String modelId(int yMin, int yMax, int afkY) {
+        return "drowned-weighted-shell-b/" + layerCount(yMin, yMax)
+            + "/afk" + afkY;
     }
 
     /** Matches native refinement threshold coefficient (opV); retained for JNI compatibility. */
@@ -447,7 +460,7 @@ public class LowYDripstoneCaveSearchRunner {
             int[] raw;
             synchronized (NATIVE_LOCK) {
                 raw = LowYDripstoneCaveFinderBridge.riverSearch(seed, startX, startZ, width, height,
-                    yMin, yMax, DEFAULT_COARSE_Y, minArea,
+                    yMin, yMax, DEFAULT_COARSE_Y, DEFAULT_AFK_Y, minArea,
                     DEFAULT_PRESERVE_RANGE, weight, threads, mc, contScale, weirdScale, mode, allowGpu);
             }
 
@@ -458,11 +471,11 @@ public class LowYDripstoneCaveSearchRunner {
                     int x = row[0], z = row[1], total = row[2], cave = row[3], river = row[4];
                     double ratioPercent = total / RIVER_AREA_FULL * 100.0;
                     if (mode == SEARCH_MODE_FULL_MAP_PIT) {
-                        sb.append(String.format("/tp %d 64 %d s=%d/%d = %.2f%%",
-                            x, z, total, fullAreaInt, ratioPercent));
+                        sb.append(String.format("/tp %d %d %d s=%d/%d = %.2f%%",
+                            x, DEFAULT_AFK_Y, z, total, fullAreaInt, ratioPercent));
                     } else {
-                        sb.append(String.format("/tp %d 64 %d s=%d/%d = %.2f%% cave=%d river=%d",
-                            x, z, total, fullAreaInt, ratioPercent, cave, river));
+                        sb.append(String.format("/tp %d %d %d s=%d/%d = %.2f%% cave=%d river=%d",
+                            x, DEFAULT_AFK_Y, z, total, fullAreaInt, ratioPercent, cave, river));
                     }
                     sb.append('\n');
                 }
