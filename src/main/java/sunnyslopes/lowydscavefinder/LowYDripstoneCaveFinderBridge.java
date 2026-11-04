@@ -184,6 +184,21 @@ public final class LowYDripstoneCaveFinderBridge {
         int searchMode, boolean allowGpu);
 
     /**
+     * Exact display denominator of one model configuration.
+     *
+     * Sums the 24..128 shell cell counts over {@code [yMin, yMax]} and divides by
+     * the layer count (rounded).  {@code total / fullShellArea(...)} is the
+     * reported percentage; the value is derived from the geometry, not fitted.
+     *
+     * @param yMin lowest sampled layer
+     * @param yMax highest sampled layer
+     * @param afkY AFK / player Y of the shell model; {@link Integer#MIN_VALUE}
+     *     means "yMin + 23" (the engine default)
+     * @return the per-layer-average full shell area (>= 1)
+     */
+    public static native int fullShellArea(int yMin, int yMax, int afkY);
+
+    /**
      * Progress query. Returns {@code [current, total, phase, status, tryPause, tryStop]} or {@code null} if idle.
      * {@code phase}: 1 = phase-1 scan, 2 = refinement, -1 = finishing.
      * {@code status}: phase 1: 0 = chunks active, 1 = no chunk in flight; phase 2: 1 = refining, 2 = refinement step done.

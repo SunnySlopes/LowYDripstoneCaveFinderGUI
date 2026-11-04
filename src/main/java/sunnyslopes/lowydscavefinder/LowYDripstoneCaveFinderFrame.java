@@ -37,6 +37,10 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
     private static final int DEFAULT_LIST_MIN_Z = -4096;
     private static final int DEFAULT_LIST_MAX_Z = 4095;
 
+    /**
+     * 默认模型（-63..-51、AFK=-40）的精确球壳分母，只用于下面这些**输入预设**的标定。
+     * 运行期的面积 ↔ 占比换算一律走 {@link #currentFullArea}：层范围一改，满分随之变化。
+     */
     private static final double RIVER_AREA_FULL = LowYDripstoneCaveSearchRunner.RIVER_AREA_FULL;
     /**
      * 加权总面积下限：快速模式 60%，精确模式 40%；上限 95%，占比同范围
@@ -519,7 +523,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         searchYMaxField = new JTextField(String.valueOf(DEFAULT_Y_MAX_UI), 20);
         searchYMaxField.setToolTipText(getString("hint.yRange"));
         inputPanel.add(searchYMaxField, gbc);
-        attachYRangeValidation(searchYMinField, searchYMaxField);
+        attachYRangeValidation(searchYMinField, searchYMaxField, this::syncSearchRatioFromArea);
 
         // MinX 输入
         gbc.gridx = 0;
@@ -972,8 +976,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             double minRatio = minRiverRatioUi(isSearchFastMode());
             int area = Integer.parseInt(searchMinRiverAreaField.getText().trim());
             area = Math.max(minArea, Math.min(MAX_RIVER_AREA_UI, area));
+            double full = currentFullArea(searchYMinField, searchYMaxField);
             searchRiverParamUpdating = true;
-            double ratio = RIVER_AREA_FULL > 0 ? (area / RIVER_AREA_FULL * 100.0) : 0;
+            double ratio = full > 0 ? (area / full * 100.0) : 0;
             ratio = Math.max(minRatio, Math.min(MAX_RIVER_RATIO_UI, ratio));
             searchMinRiverRatioField.setText(String.format("%.2f", ratio));
             searchMinRiverAreaField.setText(String.valueOf(area));
@@ -993,8 +998,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             double minRatio = minRiverRatioUi(isSearchFastMode());
             double ratio = Double.parseDouble(searchMinRiverRatioField.getText().trim());
             ratio = Math.max(minRatio, Math.min(MAX_RIVER_RATIO_UI, ratio));
+            double full = currentFullArea(searchYMinField, searchYMaxField);
             searchRiverParamUpdating = true;
-            int area = (int) Math.round(RIVER_AREA_FULL * ratio / 100.0);
+            int area = (int) Math.round(full * ratio / 100.0);
             area = Math.max(minArea, Math.min(MAX_RIVER_AREA_UI, area));
             searchMinRiverAreaField.setText(String.valueOf(area));
             searchMinRiverRatioField.setText(String.format("%.2f", ratio));
@@ -1014,8 +1020,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             double minRatio = minRiverRatioUi(isListFastMode());
             int area = Integer.parseInt(listMinRiverAreaField.getText().trim());
             area = Math.max(minArea, Math.min(MAX_RIVER_AREA_UI, area));
+            double full = currentFullArea(listYMinField, listYMaxField);
             listRiverParamUpdating = true;
-            double ratio = RIVER_AREA_FULL > 0 ? (area / RIVER_AREA_FULL * 100.0) : 0;
+            double ratio = full > 0 ? (area / full * 100.0) : 0;
             ratio = Math.max(minRatio, Math.min(MAX_RIVER_RATIO_UI, ratio));
             listMinRiverRatioField.setText(String.format("%.2f", ratio));
             listMinRiverAreaField.setText(String.valueOf(area));
@@ -1035,8 +1042,9 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
             double minRatio = minRiverRatioUi(isListFastMode());
             double ratio = Double.parseDouble(listMinRiverRatioField.getText().trim());
             ratio = Math.max(minRatio, Math.min(MAX_RIVER_RATIO_UI, ratio));
+            double full = currentFullArea(listYMinField, listYMaxField);
             listRiverParamUpdating = true;
-            int area = (int) Math.round(RIVER_AREA_FULL * ratio / 100.0);
+            int area = (int) Math.round(full * ratio / 100.0);
             area = Math.max(minArea, Math.min(MAX_RIVER_AREA_UI, area));
             listMinRiverAreaField.setText(String.valueOf(area));
             listMinRiverRatioField.setText(String.format("%.2f", ratio));
@@ -1090,34 +1098,77 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         }
     }
 
+    /**
+     * 当前层范围对应的精确球壳分母：把 [yMin, yMax] 每层的 24..128 球壳格数求和后
+     * 除以层数（由 native 的 {@code fullShellArea} 计算，AFK Y 取 {yMin + 23}）。
+     *
+     * 面积与占比的换算必须用它，而不是固定的 49659：层范围一改，满分就变。
+     * 输入框暂时非法时退回默认窗口，保证联动不中断；开始搜索前仍会硬校验。
+     */
+    private double currentFullArea(JTextField yMinField, JTextField yMaxField) {
+        int yMin = DEFAULT_Y_MIN_UI;
+        int yMax = DEFAULT_Y_MAX_UI;
+        try {
+            if (yMinField != null) yMin = Integer.parseInt(yMinField.getText().trim());
+            if (yMaxField != null) yMax = Integer.parseInt(yMaxField.getText().trim());
+        } catch (NumberFormatException ignored) {
+            // 输入过程中保持默认窗口，避免联动闪断
+        }
+        if (yMin > yMax) {
+            int swap = yMin;
+            yMin = yMax;
+            yMax = swap;
+        }
+        if (yMin < Y_LIMIT_MIN_UI) yMin = Y_LIMIT_MIN_UI;
+        if (yMax > Y_LIMIT_MAX_UI) yMax = Y_LIMIT_MAX_UI;
+        if (yMax - yMin + 1 > MAX_Y_SPAN_UI) yMax = yMin + MAX_Y_SPAN_UI - 1;
+        int full = LowYDripstoneCaveSearchRunner.fullAreaFor(
+            yMin, yMax, LowYDripstoneCaveSearchRunner.defaultAfkY(yMin));
+        return full > 0 ? full : RIVER_AREA_FULL;
+    }
+
     /** 输入变化时实时标红：非法范围（非整数/倒置/越界/跨度>48）背景变红。 */
     private void attachYRangeValidation(JTextField minField, JTextField maxField) {
+        attachYRangeValidation(minField, maxField, null);
+    }
+
+    /**
+     * 同上，并在范围变为合法时执行 onValidChange（用于按新的满分重算占比）。
+     */
+    private void attachYRangeValidation(JTextField minField, JTextField maxField, Runnable onValidChange) {
         if (minField == null || maxField == null) return;
         javax.swing.event.DocumentListener listener = new javax.swing.event.DocumentListener() {
             public void changedUpdate(javax.swing.event.DocumentEvent e) {
-                refreshYRangeFieldStyle(minField, maxField);
+                refreshYRangeFieldStyle(minField, maxField, onValidChange);
             }
 
             public void removeUpdate(javax.swing.event.DocumentEvent e) {
-                refreshYRangeFieldStyle(minField, maxField);
+                refreshYRangeFieldStyle(minField, maxField, onValidChange);
             }
 
             public void insertUpdate(javax.swing.event.DocumentEvent e) {
-                refreshYRangeFieldStyle(minField, maxField);
+                refreshYRangeFieldStyle(minField, maxField, onValidChange);
             }
         };
         minField.getDocument().addDocumentListener(listener);
         maxField.getDocument().addDocumentListener(listener);
-        refreshYRangeFieldStyle(minField, maxField);
+        refreshYRangeFieldStyle(minField, maxField, onValidChange);
     }
 
     private void refreshYRangeFieldStyle(JTextField minField, JTextField maxField) {
+        refreshYRangeFieldStyle(minField, maxField, null);
+    }
+
+    private void refreshYRangeFieldStyle(JTextField minField, JTextField maxField, Runnable onValidChange) {
         boolean valid = parseYRangeValues(minField, maxField) != null;
         Color ok = UIManager.getColor("TextField.background");
         if (ok == null) ok = Color.WHITE;
         Color bad = new Color(255, 205, 205);
         minField.setBackground(valid ? ok : bad);
         maxField.setBackground(valid ? ok : bad);
+        if (valid && onValidChange != null) {
+            onValidChange.run();
+        }
     }
 
     /** 解析并硬校验 Y 范围，不弹窗；非法返回 null。 */
@@ -1373,7 +1424,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         pitYMinField = new JTextField(String.valueOf(DEFAULT_Y_MIN_UI), 20);
         pitYMinField.setToolTipText(getString("hint.yRange"));
         inputPanel.add(pitYMinField, gbc);
-        attachYRangeValidation(pitYMinField, pitYMaxField);
+        attachYRangeValidation(pitYMinField, pitYMaxField, this::syncPitRatioFromArea);
 
         addPitBoundRow(inputPanel, gbc, 6, "label.minX", BOUNDARY_MIN_X);
         addPitBoundRow(inputPanel, gbc, 7, "label.maxX", BOUNDARY_MAX_X);
@@ -1575,7 +1626,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         try {
             int area = Integer.parseInt(pitMinRiverAreaField.getText().trim());
             area = Math.max(MIN_PIT_AREA_UI, Math.min(MAX_RIVER_AREA_UI, area));
-            double ratio = RIVER_AREA_FULL > 0 ? (area / RIVER_AREA_FULL * 100.0) : 0;
+            double full = currentFullArea(pitYMinField, pitYMaxField);
+            double ratio = full > 0 ? (area / full * 100.0) : 0;
             ratio = Math.max(MIN_PIT_RATIO_UI, Math.min(MAX_RIVER_RATIO_UI, ratio));
             pitRiverParamUpdating = true;
             pitMinRiverRatioField.setText(String.format("%.2f", ratio));
@@ -1591,7 +1643,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         try {
             double ratio = Double.parseDouble(pitMinRiverRatioField.getText().trim());
             ratio = Math.max(MIN_PIT_RATIO_UI, Math.min(MAX_RIVER_RATIO_UI, ratio));
-            int area = (int) Math.round(RIVER_AREA_FULL * ratio / 100.0);
+            double full = currentFullArea(pitYMinField, pitYMaxField);
+            int area = (int) Math.round(full * ratio / 100.0);
             area = Math.max(MIN_PIT_AREA_UI, Math.min(MAX_RIVER_AREA_UI, area));
             pitRiverParamUpdating = true;
             pitMinRiverAreaField.setText(String.valueOf(area));
@@ -2511,7 +2564,8 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         double minRatio = minRiverRatioUi(isSearchFastMode());
         double ratio = Math.max(minRatio, Math.min(MAX_RIVER_RATIO_UI, ratioPercent));
         int minArea = minRiverAreaUi(isSearchFastMode());
-        int area = (int) Math.round(RIVER_AREA_FULL * ratio / 100.0);
+        double full = currentFullArea(searchYMinField, searchYMaxField);
+        int area = (int) Math.round(full * ratio / 100.0);
         area = Math.max(minArea, Math.min(MAX_RIVER_AREA_UI, area));
         searchRiverParamUpdating = true;
         try {
@@ -2804,7 +2858,7 @@ public class LowYDripstoneCaveFinderFrame extends JFrame {
         listYMaxField = new JTextField(String.valueOf(DEFAULT_Y_MAX_UI), 20);
         listYMaxField.setToolTipText(getString("hint.yRange"));
         inputPanel.add(listYMaxField, gbc);
-        attachYRangeValidation(listYMinField, listYMaxField);
+        attachYRangeValidation(listYMinField, listYMaxField, this::syncListRatioFromArea);
 
         // MinX 输入
         gbc.gridx = 0;

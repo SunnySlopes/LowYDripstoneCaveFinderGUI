@@ -49,10 +49,25 @@ public class LowYDripstoneCaveSearchRunner {
     }
 
     /**
-     * Block-cell centers in the 24..128 annulus (block-center raster).
-     * This is also the cap for the weighted total, so the reported ratio is 0%..100%.
+     * Block-cell centers in the 24..128 shell at {@code afkY = yMin + 23} for
+     * the default -63..-51 window.  This is the default-model calibration for
+     * the input presets; the per-result percentage uses the exact value from
+     * {@link #fullAreaFor(int, int, int)} instead.
      */
     public static final double RIVER_AREA_FULL = 49_659.0;
+
+    /**
+     * Exact display denominator for a model configuration (derived in native
+     * from the shell geometry).  Falls back to the default-model constant when
+     * the native library is unavailable.
+     */
+    public static int fullAreaFor(int yMin, int yMax, int afkY) {
+        try {
+            return LowYDripstoneCaveFinderBridge.fullShellArea(yMin, yMax, afkY);
+        } catch (Throwable ignored) {
+            return (int) RIVER_AREA_FULL;
+        }
+    }
 
     /** Max search area (blocks). */
     public static final long MAX_SEARCH_AREA_BLOCKS = 60_000_001L * 60_000_001L;
@@ -66,10 +81,22 @@ public class LowYDripstoneCaveSearchRunner {
     /** Coarse-stage recall height; the climate prefilter is Y-independent today. */
     public static final int DEFAULT_COARSE_Y = -51;
     /**
-     * AFK / player Y of the shell model.  The scored region is the 3D shell
-     * 24 < distance <= 128 around (result x, afkY, result z).
+     * AFK / player Y of the shell model: lowest sampled layer + 23.
+     *
+     * The scored region is the 3D shell {@code 24 < distance <= 128} around
+     * {@code (result x, afkY, result z)}.  While every layer stays within ±24
+     * of the AFK Y the shell cross-section area is identical on every layer,
+     * so the whole plateau is equivalent; +23 keeps the window inside it with
+     * one block of margin at the lower edge (-40 for the default -63..-51).
      */
-    public static final int DEFAULT_AFK_Y = -40;
+    public static final int AFK_OFFSET_FROM_Y_MIN = 23;
+
+    /** AFK Y derived from the lowest sampled layer. */
+    public static int defaultAfkY(int yMin) {
+        return yMin + AFK_OFFSET_FROM_Y_MIN;
+    }
+
+    public static final int DEFAULT_AFK_Y = defaultAfkY(DEFAULT_Y_MIN);
     public static final int AFK_Y_LIMIT_MIN = -64;
     public static final int AFK_Y_LIMIT_MAX = 320;
     /** Layer bounds accepted by the native engine. */
@@ -87,7 +114,7 @@ public class LowYDripstoneCaveSearchRunner {
 
     /** Result-set model tag, e.g. {@code drowned-weighted-shell-b/13/afk-40}. */
     public static String modelId(int yMin, int yMax) {
-        return modelId(yMin, yMax, DEFAULT_AFK_Y);
+        return modelId(yMin, yMax, defaultAfkY(yMin));
     }
 
     /** Result-set model tag for an explicit AFK Y. */
@@ -457,25 +484,27 @@ public class LowYDripstoneCaveSearchRunner {
             }
             String uiMc = (mcVersion == null || mcVersion.isBlank()) ? DEFAULT_MC_VERSION : mcVersion.trim();
             String mc = toCubiomesMcVersion(uiMc);
+            /* AFK Y follows the lowest sampled layer (+23), not a fixed -40. */
+            int afkY = defaultAfkY(yMin);
             int[] raw;
             synchronized (NATIVE_LOCK) {
                 raw = LowYDripstoneCaveFinderBridge.riverSearch(seed, startX, startZ, width, height,
-                    yMin, yMax, DEFAULT_COARSE_Y, DEFAULT_AFK_Y, minArea,
+                    yMin, yMax, DEFAULT_COARSE_Y, afkY, minArea,
                     DEFAULT_PRESERVE_RANGE, weight, threads, mc, contScale, weirdScale, mode, allowGpu);
             }
 
             if (raw != null && resultCallback != null) {
-                int fullAreaInt = (int) RIVER_AREA_FULL;
+                int fullAreaInt = fullAreaFor(yMin, yMax, afkY);
                 StringBuilder sb = new StringBuilder();
                 for (int[] row : filterResultsForOutput(raw)) {
                     int x = row[0], z = row[1], total = row[2], cave = row[3], river = row[4];
-                    double ratioPercent = total / RIVER_AREA_FULL * 100.0;
+                    double ratioPercent = fullAreaInt > 0 ? total / (double) fullAreaInt * 100.0 : 0.0;
                     if (mode == SEARCH_MODE_FULL_MAP_PIT) {
                         sb.append(String.format("/tp %d %d %d s=%d/%d = %.2f%%",
-                            x, DEFAULT_AFK_Y, z, total, fullAreaInt, ratioPercent));
+                            x, afkY, z, total, fullAreaInt, ratioPercent));
                     } else {
                         sb.append(String.format("/tp %d %d %d s=%d/%d = %.2f%% cave=%d river=%d",
-                            x, DEFAULT_AFK_Y, z, total, fullAreaInt, ratioPercent, cave, river));
+                            x, afkY, z, total, fullAreaInt, ratioPercent, cave, river));
                     }
                     sb.append('\n');
                 }
